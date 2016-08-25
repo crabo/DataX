@@ -1,0 +1,6 @@
+{
+    "name": "verticawriter",
+    "class": "com.alibaba.datax.plugin.writer.verticawriter.VerticaWriter",
+    "description": "useScene: prod. mechanism: Jdbc connection using the database, execute insert sql. warn: The more you know about the database, the less problems you encounter.",
+    "developer": "nascent"
+}
