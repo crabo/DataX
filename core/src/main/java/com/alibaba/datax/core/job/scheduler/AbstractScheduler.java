@@ -39,7 +39,7 @@ public abstract class AbstractScheduler {
         int jobReportIntervalInMillSec = configurations.get(0).getInt(
                 CoreConstant.DATAX_CORE_CONTAINER_JOB_REPORTINTERVAL, 30000);
         int jobSleepIntervalInMillSec = configurations.get(0).getInt(
-                CoreConstant.DATAX_CORE_CONTAINER_JOB_SLEEPINTERVAL, 10000);
+                CoreConstant.DATAX_CORE_CONTAINER_JOB_SLEEPINTERVAL, 3000);//by crabo10000=>3000,完成后尽快退出shell
 
         this.jobId = configurations.get(0).getLong(
                 CoreConstant.DATAX_CORE_CONTAINER_JOB_ID);
