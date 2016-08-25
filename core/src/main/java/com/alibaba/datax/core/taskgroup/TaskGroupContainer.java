@@ -32,6 +32,14 @@ import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class TaskGroupContainer extends AbstractContainer {
@@ -121,19 +129,20 @@ public class TaskGroupContainer extends AbstractContainer {
             
             List<Configuration> taskConfigs = this.configuration
                     .getListConfiguration(CoreConstant.DATAX_JOB_CONTENT);
-
             if(LOG.isDebugEnabled()) {
                 LOG.debug("taskGroup[{}]'s task configs[{}]", this.taskGroupId,
                         JSON.toJSONString(taskConfigs));
             }
             
             int taskCountInThisTaskGroup = taskConfigs.size();
-            LOG.info(String.format(
+            LOG.debug(String.format(
                     "taskGroupId=[%d] start [%d] channels for [%d] tasks.",
                     this.taskGroupId, channelNumber, taskCountInThisTaskGroup));
             
             this.containerCommunicator.registerCommunication(taskConfigs);
-
+            int ts_interval = this.configuration.getInt("job.setting.ts_interval_sec",0);
+            do{
+            
             Map<Integer, Configuration> taskConfigMap = buildTaskConfigMap(taskConfigs); //taskId与task配置
             List<Configuration> taskQueue = buildRemainTasks(taskConfigs); //待运行task列表
             Map<Integer, TaskExecutor> taskFailedExecutorMap = new HashMap<Integer, TaskExecutor>(); //taskId与上次失败实例
@@ -142,7 +151,8 @@ public class TaskGroupContainer extends AbstractContainer {
 
             long lastReportTimeStamp = 0;
             Communication lastTaskGroupContainerCommunication = new Communication();
-
+            
+            DeltaJobTimestamp.read(this.configuration);//by crabo ts_start：从外部文件读取时间戳
             while (true) {
             	//1.判断task状态
             	boolean failedOrKilled = false;
@@ -225,6 +235,7 @@ public class TaskGroupContainer extends AbstractContainer {
                         }
                     }
                     Configuration taskConfigForRun = taskMaxRetryTimes > 1 ? taskConfig.clone() : taskConfig;
+                    DeltaJobTimestamp.apply(this.configuration,taskConfigForRun);//by crabo ts_start：从外部文件读取时间戳
                 	TaskExecutor taskExecutor = new TaskExecutor(taskConfigForRun, attemptCount);
                     taskStartTimeMap.put(taskId, System.currentTimeMillis());
                 	taskExecutor.doStart();
@@ -236,7 +247,7 @@ public class TaskGroupContainer extends AbstractContainer {
                     taskMonitor.registerTask(taskId, this.containerCommunicator.getCommunication(taskId));
 
                     taskFailedExecutorMap.remove(taskId);
-                    LOG.info("taskGroup[{}] taskId[{}] attemptCount[{}] is started",
+                    LOG.debug("taskGroup[{}] taskId[{}] attemptCount[{}] is started",
                             this.taskGroupId, taskId, attemptCount);
                 }
 
@@ -245,8 +256,10 @@ public class TaskGroupContainer extends AbstractContainer {
                 	// 成功的情况下，也需要汇报一次。否则在任务结束非常快的情况下，采集的信息将会不准确
                     lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
                             lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
-
-                    LOG.info("taskGroup[{}] completed it's tasks.", this.taskGroupId);
+                    
+                    DeltaJobTimestamp.write(this.configuration);//by crabo ts_start:更新时间戳
+                    containerCommunicator.resetCommunication(0);//by crabo: do NOT close job!!!
+                    LOG.debug("taskGroup[{}] completed it's tasks.", this.taskGroupId);
                     break;
                 }
 
@@ -269,8 +282,11 @@ public class TaskGroupContainer extends AbstractContainer {
             }
 
             //6.最后还要汇报一次
-            reportTaskGroupCommunication(lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
-
+        	reportTaskGroupCommunication(lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
+        	
+        	LOG.info("taskGroup[{}] wait '{}' seconds for next run ...",this.taskGroupId,ts_interval);
+        	Thread.sleep(ts_interval*1000);//根据预设值等待下次重复启动
+            }while(ts_interval>0);
 
         } catch (Throwable e) {
             Communication nowTaskGroupContainerCommunication = this.containerCommunicator.collect();
@@ -347,6 +363,93 @@ public class TaskGroupContainer extends AbstractContainer {
     private void markCommunicationFailed(Integer taskId){
         Communication communication = containerCommunicator.getCommunication(taskId);
         communication.setState(State.FAILED);
+    }
+    
+    static class DeltaJobTimestamp{
+    	private static final Logger LOG = LoggerFactory
+                .getLogger(DeltaJobTimestamp.class);
+    	
+    	public static void read(Configuration cfg){
+    		String file = cfg.getString("job.setting.ts_file","job.ts.txt");
+    		String start=fromFile(file);
+    		cfg.set("job.setting.ts_start", start);
+    		cfg.set("job.setting.ts_end", getNowString());
+    	}
+    	public static void apply(Configuration cfg,Configuration task){
+    		String sql = task.getString("reader.parameter.ts_querySql");//original sql
+    		if(sql==null)
+    		{
+    			sql=task.getString("reader.parameter.querySql");
+    			if(sql==null) sql=initTask(task);//未被job.split()处理
+    			
+    			task.set("reader.parameter.ts_querySql",sql);//first init!
+    		}
+    		
+    		task.set("reader.parameter.querySql", //update sql to DELTA query
+	    		sql.replace("$ts_start", cfg.getString("job.setting.ts_start"))
+	    			.replace("$ts_end", cfg.getString("job.setting.ts_end"))
+    			);
+    		
+    		//task.set("reader.parameter.ts_end", cfg.getString("job.setting.ts_end"));
+    		//task.set("reader.parameter.ts_start", cfg.getString("job.setting.ts_start"));
+    	}
+    	static String initTask(Configuration task){
+    		String sql=task.getString("writer.parameter.connection[0].table[0]");
+    		String jdbcUrl=task.getString("writer.parameter.connection[0].jdbcUrl");
+    		task.set("writer.parameter.table", sql);
+    		task.set("writer.parameter.jdbcUrl", jdbcUrl);
+    		
+    		sql=task.getString("reader.parameter.connection[0].querySql[0]");
+    		jdbcUrl=task.getString("reader.parameter.connection[0].jdbcUrl[0]");
+    		
+    		task.set("reader.parameter.fetchSize", Integer.MIN_VALUE);
+    		task.set("reader.parameter.querySql", sql);
+    		task.set("reader.parameter.jdbcUrl", jdbcUrl);
+    		return sql;
+    	}
+    	public static void write(Configuration cfg){
+    		String file = cfg.getString("job.setting.ts_file","job.ts.txt");
+    		toFile(file,cfg.getString("job.setting.ts_end"));
+    	}
+       static String fromFile(String path){
+    		BufferedReader br =null;
+    		try{
+    			br = new BufferedReader(new FileReader(path));
+    			return br.readLine();
+
+    		} catch (Exception e) {
+				e.printStackTrace();
+    		}finally{
+    			if(br!=null)
+					try {
+						br.close();
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+    		}
+    		return getNowString();
+    	}
+    	static void toFile(String path,String val){
+    		BufferedWriter bw=null;
+    		try {
+    			bw = new BufferedWriter(new FileWriter(path));
+				bw.write(val);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+    		finally{
+    			if(bw!=null)
+					try {
+						bw.close();
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+    		}
+    	}
+    	static String getNowString(){
+    		return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    				.format(new Date());
+    	}
     }
 
     /**
