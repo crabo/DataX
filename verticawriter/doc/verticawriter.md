@@ -34,7 +34,6 @@ VerticaWriter 通过 DataX 框架获取 Reader 生成的协议数据，根据你
 
 ### 3.1 配置样例
 
-* 这里使用一份从内存产生到 Mysql 导入的数据。
 
 ```json
 {
