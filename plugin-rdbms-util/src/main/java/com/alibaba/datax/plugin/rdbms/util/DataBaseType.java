@@ -18,7 +18,8 @@ public enum DataBaseType {
     PostgreSQL("postgresql", "org.postgresql.Driver"),
     RDBMS("rdbms", "com.alibaba.datax.plugin.rdbms.util.DataBaseType"),
     DB2("db2", "com.ibm.db2.jcc.DB2Driver"),
-    ADS("ads","com.mysql.jdbc.Driver");
+    ADS("ads","com.mysql.jdbc.Driver"),
+	Vertica("vertica","com.vertica.jdbc.Driver");
 
 
     private String typeName;
@@ -53,6 +54,8 @@ public enum DataBaseType {
             case DB2:
                 break;
             case PostgreSQL:
+            	break;
+            case Vertica:
             	break;
             case RDBMS:
                 break;
@@ -91,6 +94,8 @@ public enum DataBaseType {
                 break;
             case PostgreSQL:
             	break;
+            case Vertica:
+            	break;
             case RDBMS:
                 break;
             default:
@@ -117,6 +122,7 @@ public enum DataBaseType {
                 break;
             case DB2:
             case PostgreSQL:
+            case Vertica:
             	break;
             default:
                 throw DataXException.asDataXException(DBUtilErrorCode.UNSUPPORTED_TYPE, "unsupported database type.");
@@ -140,6 +146,7 @@ public enum DataBaseType {
                 break;
             case DB2:
             case PostgreSQL:
+            case Vertica:
                 break;
             default:
                 throw DataXException.asDataXException(DBUtilErrorCode.UNSUPPORTED_TYPE, "unsupported database type");
@@ -163,6 +170,8 @@ public enum DataBaseType {
                 break;
             case PostgreSQL:
                 break;
+            case Vertica:
+            	break;
             default:
                 throw DataXException.asDataXException(DBUtilErrorCode.UNSUPPORTED_TYPE, "unsupported database type");
         }
