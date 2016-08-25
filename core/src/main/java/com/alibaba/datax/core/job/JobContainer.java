@@ -114,7 +114,12 @@ public class JobContainer extends AbstractContainer {
                 LOG.info("jobContainer starts to do prepare ...");
                 this.prepare();
                 LOG.info("jobContainer starts to do split ...");
-                this.totalStage = this.split();
+                //by crabo
+                if(null==configuration.getInt("job.content[0].taskId"))
+                	this.totalStage = this.split();
+                else{
+	                if (this.needChannelNumber <= 0) this.needChannelNumber = 1;
+                }
                 LOG.info("jobContainer starts to do schedule ...");
                 this.schedule();
                 LOG.debug("jobContainer starts to do post ...");
@@ -392,6 +397,7 @@ public class JobContainer extends AbstractContainer {
 
         List<Configuration> readerTaskConfigs = this
                 .doReaderSplit(this.needChannelNumber);
+        
         int taskNumber = readerTaskConfigs.size();
         List<Configuration> writerTaskConfigs = this
                 .doWriterSplit(taskNumber);
