@@ -105,7 +105,7 @@ public final class OriginalConfPretreatmentUtil {
                 allColumns = DBUtil.getTableColumnsByConn(DATABASE_TYPE,connectionFactory.getConnecttion(), oneTable, connectionFactory.getConnectionInfo());
             }
 
-            LOG.info("table:[{}] all columns:[\n{}\n].", oneTable,
+            LOG.debug("table:[{}] all columns:[\n{}\n].", oneTable,
                     StringUtils.join(allColumns, ","));
 
             if (1 == userConfiguredColumns.size() && "*".equals(userConfiguredColumns.get(0))) {
