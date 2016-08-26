@@ -447,7 +447,7 @@ public class TaskGroupContainer extends AbstractContainer {
     		}
     	}
     	static String getNowString(){
-    		return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    		return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS")
     				.format(new Date());
     	}
     }
