@@ -1,0 +1,15 @@
+{
+    "name": "elasticwriter",
+    "parameter": {
+        "batchSize":1000,
+        "writeMode": "index/update",
+        "column": ["name","order.name","create_date"],
+        
+        "host":["114.215.171.188:9200"]
+        "index":"crm-%%",
+        "document":"customer",
+        "id_field":0,
+        "date_field":2,
+        "month_per_shard":6
+    }
+}

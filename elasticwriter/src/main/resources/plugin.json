@@ -1,0 +1,6 @@
+{
+    "name": "elasticwriter",
+    "class": "com.alibaba.datax.plugin.writer.elasticwriter.ElasticWriter",
+    "description": "useScene: prod. mechanism:  post batch JSON to /_bulk",
+    "developer": "nascent"
+}
