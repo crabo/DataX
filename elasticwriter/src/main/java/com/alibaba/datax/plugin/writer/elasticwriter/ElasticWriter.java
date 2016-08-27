@@ -96,7 +96,6 @@ public class ElasticWriter extends Writer {
         
         private String index;
         private String document;
-        private int idField;
         private int dateField;
         private int MONTH_PER_SHARD;//如每3个月合并为一个shard,一年则有4个分片
         private HttpHost[] hosts;
@@ -117,7 +116,6 @@ public class ElasticWriter extends Writer {
             
             this.index = this.writerSliceConfig.getString(EsKey.INDEX);
             this.document = this.writerSliceConfig.getString(EsKey.DOCUMENT);
-            this.idField = this.writerSliceConfig.getInt(EsKey.ID_FIELD,0);
             //按照日期字段选择indices分库
             this.dateField = this.writerSliceConfig.getInt(EsKey.DATE_FIELD,-1);
             this.MONTH_PER_SHARD = this.writerSliceConfig.getInt(EsKey.MONTH_PER_SHARD,3);
@@ -147,12 +145,10 @@ public class ElasticWriter extends Writer {
         void startWriteWithConn(RecordReceiver recordReceiver,RestClient conn){
         	List<Record> writeBuffer = new ArrayList<Record>(this.batchSize);
     		int bufferBytes = 0;
-    		int count=0;
             try {
                 Record record;
                 while ((record = recordReceiver.getFromReader()) != null) {
                     writeBuffer.add(record);
-                    count++;
                     bufferBytes += record.getMemorySize();
 
                     if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
@@ -167,8 +163,6 @@ public class ElasticWriter extends Writer {
                     writeBuffer.clear();
                     bufferBytes = 0;
                 }
-                
-                LOG.info("write [{}] records finished.",count);
             } catch (Exception e) {
                 throw DataXException.asDataXException(
                         DBUtilErrorCode.WRITE_DATA_ERROR, e);
@@ -235,17 +229,30 @@ public class ElasticWriter extends Writer {
         	}
         	
         	sb.append("{\"_index\":\"").append(idx)
-        		.append("\",\"_type\":\"").append(this.document)
-        		.append("\",\"_id\":\"").append(r.getColumn(this.idField).getRawData())
-        		.append("\"}");
+        		.append("\",\"_type\":\"").append(this.document);
+        		//.append("\",\"_id\":\"").append(r.getColumn(this.idField).getRawData());
+        		
+        	
+        	for(int i=0;i<this.columnNumber;i++){
+        		if(i==this.dateField) continue;//分片控制字段不进入meta
+        		
+        		String colName = this.columns.get(i);
+        		if(!colName.startsWith("_"))//连续的下划线字段，将一一进入meta
+        			break;
+        		else{
+        			sb.append(",\"").append(colName).append("\":\"")
+        				.append(r.getColumn(i).getRawData());
+        		}
+        	}
+        	sb.append("\"}");
         }
         
         void appendDoc(StringBuilder sb,Record r){
         	Map<String,Object> root = new HashMap<String,Object>();
         	for(int i=0;i<this.columnNumber;i++){
         		String colName = this.columns.get(i);
-        		
-        		appendNestedProp(root,colName,r.getColumn(i));
+        		if(!colName.startsWith("_"))//所有下划线开头的字段都忽略
+        			appendNestedProp(root,colName,r.getColumn(i));
         	}
         	
         	sb.append(JSON.toJSONString(root));

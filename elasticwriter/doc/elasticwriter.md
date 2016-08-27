@@ -11,6 +11,8 @@ ElasticWriter 插件实现了写入数据到 ElasticSearch 主库的目的表的
 同时根据"index":"crm-%%" 的%%占位符， 和date_field对应的column位置， 自动计算记录所属的分库，
 实现数据导入分库的效果：如 crm-1602
 
+column[] 中，所有下划线开头的字段都忽略，如 "_id","_date" 等将不导入到es。
+
 内部实现使用ElasticSearch5 的RestClient 直接提交POST请求到_bulk 接口。
 
 
@@ -68,10 +70,10 @@ writeMode=update时
 					"writeMode": "index", //替换整条记录。 update则部分更新到记录（或新增）
 					"index":"crm-%%",    //%%会替换为对应的分库值：1603
 					"document":"customer",
-					"id_field":0,        //id字段在column中的位置
 					"date_field":2,      //用于分库的字段在column中的位置
 					"month_per_shard":6, //基于日期的分库：每6月一个分片。 则一年共计2个indices
-					"column": ["ID",
+					"column": ["_id",    //column中连续的下划线变量为meta值：_id,_parent,_routing
+						 "_parent",
 						 "name",
 						 "create_date",
 						 "member.grade"
