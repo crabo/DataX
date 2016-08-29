@@ -34,6 +34,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -370,12 +371,17 @@ public class TaskGroupContainer extends AbstractContainer {
                 .getLogger(DeltaJobTimestamp.class);
     	
     	public static void read(Configuration cfg){
-    		String file = cfg.getString("job.setting.ts_file","job.ts.txt");
+    		String file = cfg.getString("job.setting.ts_file");//timestamp在当前目录下的文件名。 不配置则不启用deltaJob
+    		if(file==null) return;
+    		
     		String start=fromFile(file);
     		cfg.set("job.setting.ts_start", start);
     		cfg.set("job.setting.ts_end", getNowString());
     	}
     	public static void apply(Configuration cfg,Configuration task){
+    		String file = cfg.getString("job.setting.ts_file");
+    		if(file==null) return;
+    		
     		String sql = task.getString("reader.parameter.ts_querySql");//original sql
     		if(sql==null)
     		{
@@ -384,11 +390,12 @@ public class TaskGroupContainer extends AbstractContainer {
     			
     			task.set("reader.parameter.ts_querySql",sql);//first init!
     		}
-    		
-    		task.set("reader.parameter.querySql", //update sql to DELTA query
-	    		sql.replace("$ts_start", cfg.getString("job.setting.ts_start"))
-	    			.replace("$ts_end", cfg.getString("job.setting.ts_end"))
-    			);
+    		if(sql!=null){
+	    		task.set("reader.parameter.querySql", //update sql to DELTA query
+		    		sql.replace("$ts_start", cfg.getString("job.setting.ts_start"))//ts是全局参数，全部task完成，才更新一次
+		    			.replace("$ts_end", cfg.getString("job.setting.ts_end"))
+	    			);
+    		}
     		
     		//task.set("reader.parameter.ts_end", cfg.getString("job.setting.ts_end"));
     		//task.set("reader.parameter.ts_start", cfg.getString("job.setting.ts_start"));
@@ -408,14 +415,20 @@ public class TaskGroupContainer extends AbstractContainer {
     		return sql;
     	}
     	public static void write(Configuration cfg){
-    		String file = cfg.getString("job.setting.ts_file","job.ts.txt");
+    		String file = cfg.getString("job.setting.ts_file");
+    		if(file==null) return;
+    		
     		toFile(file,cfg.getString("job.setting.ts_end"));
     	}
        static String fromFile(String path){
     		BufferedReader br =null;
     		try{
-    			br = new BufferedReader(new FileReader(path));
-    			return br.readLine();
+    			File f = new File(path);
+    			if(f.exists())
+    			{
+	    			br = new BufferedReader(new FileReader(f));
+	    			return br.readLine();
+    			}
 
     		} catch (Exception e) {
 				e.printStackTrace();

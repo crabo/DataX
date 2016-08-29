@@ -22,7 +22,7 @@ public class FakeWriter extends Writer {
 			System.out.println(jobParameter);
 
 			List<Configuration> splitConfigurationList = new ArrayList<Configuration>();
-			for (int i = 0; i < 1024; i++) {
+			for (int i = 0; i < readerSlicesNumber; i++) {
 				Configuration oneConfig = Configuration.newDefault();
 				List<String> jdbcUrlArray = new ArrayList<String>();
 				jdbcUrlArray.add(String.format("odps://localhost:3305/db%04d",

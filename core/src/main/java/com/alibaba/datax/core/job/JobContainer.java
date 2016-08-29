@@ -115,11 +115,7 @@ public class JobContainer extends AbstractContainer {
                 this.prepare();
                 LOG.info("jobContainer starts to do split ...");
                 //by crabo
-                if(null==configuration.getInt("job.content[0].taskId"))
-                	this.totalStage = this.split();
-                else{
-	                if (this.needChannelNumber <= 0) this.needChannelNumber = 1;
-                }
+            	this.totalStage = this.splitMultiJobs();
                 LOG.info("jobContainer starts to do schedule ...");
                 this.schedule();
                 LOG.debug("jobContainer starts to do post ...");
@@ -381,6 +377,62 @@ public class JobContainer extends AbstractContainer {
         handler.postHandler(configuration);
         classLoaderSwapper.restoreCurrentThreadClassLoader();
     }
+    
+    /**
+     * by crabo
+     * job内配置多个content时， 分别对每组content内进行split。 然后合并在最终的配置里。
+     */
+    int splitMultiJobs(){
+    	List<Object> jobs = this.configuration.getList(CoreConstant.DATAX_JOB_CONTENT);
+    	if(jobs.size()==1){
+    		return this.split();
+    	}else
+    	{
+	    	this.adjustChannelNumber();
+	
+	        if (this.needChannelNumber <= 0) {
+	            this.needChannelNumber = 1;
+	        }
+	        
+	        List<Configuration> allSliceConfigs = new ArrayList<Configuration>();
+	        for(int i=0;i<jobs.size();i++){
+	        	
+		        jobReader.setPluginJobConf(this.configuration.getConfiguration(
+		                CoreConstant.DATAX_JOB_CONTENT_READER_PARAMETER
+		                	.replace("[0]", "["+i+"]") ));
+		        jobReader.init();//只能重新init来覆盖设置
+		        
+		        jobWriter.setPluginJobConf(this.configuration.getConfiguration(
+		                CoreConstant.DATAX_JOB_CONTENT_WRITER_PARAMETER
+		                	.replace("[0]", "["+i+"]") ));
+		        jobWriter.init();
+		        
+		
+		        List<Configuration> readerTaskConfigs = this
+		                .doReaderSplit(this.needChannelNumber);
+		        
+		        int taskNumber = readerTaskConfigs.size();
+		        List<Configuration> writerTaskConfigs = this
+		                .doWriterSplit(taskNumber);
+		
+		        List<Configuration> transformerList = this.configuration.getListConfiguration(CoreConstant.DATAX_JOB_CONTENT_TRANSFORMER
+		        		.replace("[0]", "["+i+"]"));
+		
+		        
+		        List<Configuration> contentConfig = mergeReaderAndWriterTaskConfigs(
+		                readerTaskConfigs, writerTaskConfigs, transformerList,
+		                allSliceConfigs.size());//累计task的id
+		        //合并每一次content split的结果
+		        allSliceConfigs.addAll(contentConfig);
+	
+	        }
+	        LOG.debug("contentConfig configuration: "+ JSON.toJSONString(allSliceConfigs));
+	        
+	        //更新为最终的配置文件
+	        this.configuration.set(CoreConstant.DATAX_JOB_CONTENT, allSliceConfigs);
+	        return allSliceConfigs.size();
+    	}
+    }
 
 
     /**
@@ -409,7 +461,7 @@ public class JobContainer extends AbstractContainer {
          * 输入是reader和writer的parameter list，输出是content下面元素的list
          */
         List<Configuration> contentConfig = mergeReaderAndWriterTaskConfigs(
-                readerTaskConfigs, writerTaskConfigs, transformerList);
+                readerTaskConfigs, writerTaskConfigs, transformerList,0);
 
 
         LOG.debug("contentConfig configuration: "+ JSON.toJSONString(contentConfig));
@@ -776,13 +828,14 @@ public class JobContainer extends AbstractContainer {
     private List<Configuration> mergeReaderAndWriterTaskConfigs(
             List<Configuration> readerTasksConfigs,
             List<Configuration> writerTasksConfigs) {
-        return mergeReaderAndWriterTaskConfigs(readerTasksConfigs, writerTasksConfigs, null);
+        return mergeReaderAndWriterTaskConfigs(readerTasksConfigs, writerTasksConfigs, null,0);
     }
 
     private List<Configuration> mergeReaderAndWriterTaskConfigs(
             List<Configuration> readerTasksConfigs,
             List<Configuration> writerTasksConfigs,
-            List<Configuration> transformerConfigs) {
+            List<Configuration> transformerConfigs,
+            int accumulateIndex) {
         if (readerTasksConfigs.size() != writerTasksConfigs.size()) {
             throw DataXException.asDataXException(
                     FrameworkErrorCode.PLUGIN_SPLIT_ERROR,
@@ -807,7 +860,7 @@ public class JobContainer extends AbstractContainer {
                 taskConfig.set(CoreConstant.JOB_TRANSFORMER, transformerConfigs);
             }
 
-            taskConfig.set(CoreConstant.TASK_ID, i);
+            taskConfig.set(CoreConstant.TASK_ID, accumulateIndex+i);
             contentConfigs.add(taskConfig);
         }
 
