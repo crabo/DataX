@@ -180,7 +180,6 @@ public class ElasticWriter extends Writer {
             }
         }
         void doBulkInsert(RestClient conn,List<Record> records) throws IOException{
-        	
         	StringBuilder sb = new StringBuilder();
         	for(Record r : records)
         		appendBulk(sb,r);
@@ -192,6 +191,8 @@ public class ElasticWriter extends Writer {
         		LOG.warn("ElasticSearch '_bulk' post failed.",resp);
         		throw new IllegalArgumentException("_bulk post failed");
         	}
+        	
+        	LOG.debug("post [{}] records to _bulk, status={}",records.size(),resp.getStatusLine().getStatusCode());
         }
         static int HTTP_STATUS_OK=201;
         
@@ -229,7 +230,8 @@ public class ElasticWriter extends Writer {
         	}
         	
         	sb.append("{\"_index\":\"").append(idx)
-        		.append("\",\"_type\":\"").append(this.document);
+        		.append("\",\"_type\":\"").append(this.document)
+        		.append("\"");
         		//.append("\",\"_id\":\"").append(r.getColumn(this.idField).getRawData());
         		
         	
@@ -241,10 +243,11 @@ public class ElasticWriter extends Writer {
         			break;
         		else{
         			sb.append(",\"").append(colName).append("\":\"")
-        				.append(r.getColumn(i).getRawData());
+        				.append(r.getColumn(i).getRawData())
+        				.append("\"");
         		}
         	}
-        	sb.append("\"}");
+        	sb.append("}");
         }
         
         void appendDoc(StringBuilder sb,Record r){
@@ -254,7 +257,6 @@ public class ElasticWriter extends Writer {
         		if(!colName.startsWith("_"))//所有下划线开头的字段都忽略
         			appendNestedProp(root,colName,r.getColumn(i));
         	}
-        	
         	sb.append(JSON.toJSONString(root));
         }
         
