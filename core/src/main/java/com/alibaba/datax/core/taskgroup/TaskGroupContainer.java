@@ -236,7 +236,9 @@ public class TaskGroupContainer extends AbstractContainer {
                         }
                     }
                     Configuration taskConfigForRun = taskMaxRetryTimes > 1 ? taskConfig.clone() : taskConfig;
-                    DeltaJobTimestamp.apply(this.configuration,taskConfigForRun);//by crabo ts_start：从外部文件读取时间戳
+                    
+                    if(ts_interval>0)
+                    	DeltaJobTimestamp.apply(this.configuration,taskConfigForRun);//by crabo ts_start：从外部文件读取时间戳
                 	TaskExecutor taskExecutor = new TaskExecutor(taskConfigForRun, attemptCount);
                     taskStartTimeMap.put(taskId, System.currentTimeMillis());
                 	taskExecutor.doStart();
@@ -258,8 +260,10 @@ public class TaskGroupContainer extends AbstractContainer {
                     lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
                             lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
                     
-                    DeltaJobTimestamp.write(this.configuration);//by crabo ts_start:更新时间戳
-                    containerCommunicator.resetCommunication(0);//by crabo: do NOT close job!!!
+                    if(ts_interval>0){
+	                    DeltaJobTimestamp.write(this.configuration);//by crabo ts_start:更新时间戳
+	                    containerCommunicator.resetCommunication(0);//by crabo: do NOT close job!!!
+                    }
                     LOG.debug("taskGroup[{}] completed it's tasks.", this.taskGroupId);
                     break;
                 }
@@ -371,17 +375,13 @@ public class TaskGroupContainer extends AbstractContainer {
                 .getLogger(DeltaJobTimestamp.class);
     	
     	public static void read(Configuration cfg){
-    		String file = cfg.getString("job.setting.ts_file");//timestamp在当前目录下的文件名。 不配置则不启用deltaJob
-    		if(file==null) return;
+    		String file = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
     		
     		String start=fromFile(file);
     		cfg.set("job.setting.ts_start", start);
     		cfg.set("job.setting.ts_end", getNowString());
     	}
     	public static void apply(Configuration cfg,Configuration task){
-    		String file = cfg.getString("job.setting.ts_file");
-    		if(file==null) return;
-    		
     		String sql = task.getString("reader.parameter.ts_querySql");//original sql
     		if(sql==null)
     		{
@@ -415,8 +415,7 @@ public class TaskGroupContainer extends AbstractContainer {
     		return sql;
     	}
     	public static void write(Configuration cfg){
-    		String file = cfg.getString("job.setting.ts_file");
-    		if(file==null) return;
+    		String file = cfg.getString("job.setting.ts_file","job.ts.txt");
     		
     		toFile(file,cfg.getString("job.setting.ts_end"));
     	}
