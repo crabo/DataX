@@ -1,6 +1,7 @@
 package com.alibaba.datax.plugin.writer.verticawriter;
 
 import com.alibaba.datax.plugin.rdbms.writer.CommonRdbmsWriter;
+import com.alibaba.datax.plugin.rdbms.writer.Constant;
 import com.alibaba.datax.common.element.Column;
 import com.alibaba.datax.common.element.Record;
 import com.alibaba.datax.common.exception.DataXException;
@@ -37,7 +38,18 @@ public class DeltaCommonRdbmsWriter{
          public Job(DataBaseType dataBaseType) {
         	 super(dataBaseType);
          }
-
+         
+         @Override
+         public void init(Configuration originalConfig) {
+        	 super.init(originalConfig);
+        	 
+        	 String writeDataSqlTemplate=originalConfig.getString(Constant.INSERT_OR_REPLACE_TEMPLATE_MARK);
+        	 if(writeDataSqlTemplate.indexOf("replace INTO")>-1){
+        		 writeDataSqlTemplate = StringUtils.replace(writeDataSqlTemplate, "replace INTO", "insert INTO");
+        		 originalConfig.set(Constant.INSERT_OR_REPLACE_TEMPLATE_MARK, 
+        				 writeDataSqlTemplate);
+        	 }
+         }
     }
 
     public static class Task extends CommonRdbmsWriter.Task {
@@ -158,6 +170,11 @@ public class DeltaCommonRdbmsWriter{
         @Override
         protected void doBatchInsert(Connection connection, List<Record> buffer)
                 throws SQLException {
+        	if("insert".equals(super.writeMode)){//insert模式不检测键冲突,update则检测
+        		super.doBatchInsert(connection, buffer);
+        		return ;
+        	}
+        	
             PreparedStatement preparedStatement = null;
             try {
                 connection.setAutoCommit(false);
@@ -192,6 +209,24 @@ public class DeltaCommonRdbmsWriter{
         @Override
         protected void doOneInsert(Connection connection, List<Record> buffer) {
         	doUpsertWithCheck(connection,buffer);
+        }
+        
+        @Override
+        public void post(Configuration writerSliceConfig) {
+        	if("insert".equals(super.writeMode)){//copy模式不检测键冲突
+        		Connection connection = DBUtil.getConnection(this.dataBaseType,
+                        this.jdbcUrl, username, password);
+        		try {
+					if(this.failAnalyzeConstraints(connection))
+						LOG.warn(">>>>>>>>>> violate constraints！ please run [{}] immediately！<<<<<<<<<<<"
+								,getConstraintsSql());
+				} catch (SQLException e) {
+					e.printStackTrace();
+				}finally{
+					DBUtil.closeDBResources(null, null, connection);
+				}
+        	}
+        	super.post(writerSliceConfig);
         }
     }
 }
