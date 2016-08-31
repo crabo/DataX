@@ -30,7 +30,8 @@ public class DateColumn extends Column {
 	 * 实际存储有date改为long的ms，节省存储
 	 * */
 	public DateColumn(final Long stamp) {
-		super(stamp, Column.Type.DATE, (null == stamp ? 0 : 8));
+        //by crabo: 0=>null elasticsearch不接受ts为负值
+		super(((null==stamp || stamp<0)?null:stamp), Column.Type.DATE, (null == stamp ? 0 : 8));
 	}
 
 	/**

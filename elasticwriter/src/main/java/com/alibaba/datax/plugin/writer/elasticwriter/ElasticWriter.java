@@ -2,6 +2,7 @@
 package com.alibaba.datax.plugin.writer.elasticwriter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -27,7 +28,9 @@ import com.alibaba.datax.plugin.rdbms.writer.Key;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.RestClient;
 import org.apache.http.HttpHost;
+import org.apache.http.ParseException;
 import org.apache.http.entity.StringEntity;
+import org.apache.http.util.EntityUtils;
 
 import com.alibaba.fastjson.JSON;
 
@@ -187,12 +190,22 @@ public class ElasticWriter extends Writer {
         	StringEntity entity = new StringEntity(sb.toString(),"utf-8");
         	Response resp = conn.performRequest("POST", "/_bulk", this.REQUEST_PARAMS, entity);
         	
-        	if(resp.getStatusLine().getStatusCode()>HTTP_STATUS_OK){
-        		LOG.warn("ElasticSearch '_bulk' post failed.",resp);
-        		throw new IllegalArgumentException("_bulk post failed");
+        	if(failInBulk(resp)){
+        		//throw new IllegalArgumentException("_bulk post failed");
         	}
-        	
-        	LOG.debug("post [{}] records to _bulk, status={}",records.size(),resp.getStatusLine().getStatusCode());
+        }
+        boolean failInBulk(Response resp) throws ParseException, IOException{
+        	String result = EntityUtils.toString(resp.getEntity(), StandardCharsets.UTF_8);
+        	if(resp.getStatusLine().getStatusCode()>HTTP_STATUS_OK
+        			|| result.indexOf("\"errors\":true")>0)
+        	{
+        		int i = result.indexOf("\"error\":");
+        		result = result.substring(i, result.indexOf('}',i));
+        		
+        		LOG.warn("ElasticSearch '_bulk' post failed, first error=\r\n{}",result);
+        		return true;
+        	}
+        	return false;
         }
         static int HTTP_STATUS_OK=201;
         
