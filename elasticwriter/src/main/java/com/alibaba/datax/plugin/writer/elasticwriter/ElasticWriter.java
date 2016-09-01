@@ -93,17 +93,18 @@ public class ElasticWriter extends Writer {
                 .getLogger(Task.class);
         
         private Configuration writerSliceConfig;
-        private int batchSize;
-        private int batchByteSize;
-        private String writeMode;
-        private List<String> columns;
-        private int columnNumber;
+        protected int batchSize;
+        protected int batchByteSize;
+        protected String writeMode;
+        protected boolean parseArray;
+        protected List<String> columns;
+        protected int columnNumber;
         
         private String index;
         private String document;
         private int dateField;
         private int MONTH_PER_SHARD;//如每3个月合并为一个shard,一年则有4个分片
-        private HttpHost[] hosts;
+        protected HttpHost[] hosts;
         private Map<String, String> REQUEST_PARAMS;
 
 
@@ -130,6 +131,7 @@ public class ElasticWriter extends Writer {
             this.batchByteSize = writerSliceConfig.getInt(Key.BATCH_BYTE_SIZE, Constant.DEFAULT_BATCH_BYTE_SIZE);
             this.writeMode = writerSliceConfig.getString(Key.WRITE_MODE, "update");//index 或  update
             this.columns = writerSliceConfig.getList(Key.COLUMN, String.class);
+            this.parseArray= writerSliceConfig.getBool("parseArray", false);
             this.columnNumber = this.columns.size();
             
             REQUEST_PARAMS=new HashMap<String,String>(0);//EMPTY
@@ -147,7 +149,7 @@ public class ElasticWriter extends Writer {
         	startWriteWithConn(recordReceiver,client);
         }
         
-        void startWriteWithConn(RecordReceiver recordReceiver,RestClient conn){
+        private void startWriteWithConn(RecordReceiver recordReceiver,RestClient conn){
         	List<Record> writeBuffer = new ArrayList<Record>(this.batchSize);
     		int bufferBytes = 0;
             try {
@@ -184,11 +186,15 @@ public class ElasticWriter extends Writer {
 				}
             }
         }
-        void doBulkInsert(RestClient conn,List<Record> records) throws IOException{
+        private void doBulkInsert(RestClient conn,List<Record> records) throws IOException{
         	StringBuilder sb = new StringBuilder();
         	for(Record r : records)
-        		appendBulk(sb,r);
-        	
+        		appendBulk(sb,r,getNestedDoc(r));
+        	postRequest(conn,sb);
+        }
+        
+        protected void postRequest(RestClient conn,StringBuilder sb) throws IOException
+        {
         	StringEntity entity = new StringEntity(sb.toString(),"utf-8");
         	Response resp = conn.performRequest("POST", "/_bulk", this.REQUEST_PARAMS, entity);
         	
@@ -196,7 +202,7 @@ public class ElasticWriter extends Writer {
         		//throw new IllegalArgumentException("_bulk post failed");
         	}
         }
-        boolean failInBulk(Response resp) throws ParseException, IOException{
+        private boolean failInBulk(Response resp) throws ParseException, IOException{
         	String result = EntityUtils.toString(resp.getEntity(), StandardCharsets.UTF_8);
         	if(resp.getStatusLine().getStatusCode()>HTTP_STATUS_OK
         			|| result.indexOf("\"errors\":true")>0)
@@ -211,7 +217,7 @@ public class ElasticWriter extends Writer {
         }
         static int HTTP_STATUS_OK=201;
         
-        void appendBulk(StringBuilder sb,Record record)
+        protected void appendBulk(StringBuilder sb,Record rMeta,Map<String,Object> record)
         {
         	/*
         	{ "index" : { "_index" : "test", "_type" : "type1", "_id" : "1" } }
@@ -223,20 +229,20 @@ public class ElasticWriter extends Writer {
         	 */
         	//action&meta
         	sb.append("{\"").append(this.writeMode).append("\":");
-        		appendMeta(sb,record);
+        		appendMeta(sb,rMeta);
         	sb.append("}\n");
         	
         	//data
         	if("update".equals(this.writeMode)){
         		sb.append("{\"doc\":");
-        		appendDoc(sb,record);
+        		sb.append(JSON.toJSONString(record));
         		sb.append(",\"doc_as_upsert\":true}");
         	}else{
-        		appendDoc(sb,record);
+        		sb.append(JSON.toJSONString(record));
         	}
         	sb.append("\n");
         }
-        void appendMeta(StringBuilder sb,Record r){
+        protected void appendMeta(StringBuilder sb,Record r){
         	String idx = this.index;
         	if(this.dateField>-1){
         		idx = idx.replace("%%", 
@@ -265,19 +271,19 @@ public class ElasticWriter extends Writer {
         	sb.append("}");
         }
         
-        void appendDoc(StringBuilder sb,Record r){
+        private Map<String,Object> getNestedDoc(Record r){
         	Map<String,Object> root = new HashMap<String,Object>();
         	for(int i=0;i<this.columnNumber;i++){
         		String colName = this.columns.get(i);
         		if(!colName.startsWith("_"))//所有下划线开头的字段都忽略
         			appendNestedProp(root,colName,r.getColumn(i));
         	}
-        	sb.append(JSON.toJSONString(root));
+        	return root;
         }
         
-        final String NESTED_SPLITTER=".";
+        protected final String NESTED_SPLITTER=".";
         //以'.'号分隔的字段名， 要转为多层嵌套对象
-        void appendNestedProp(Map<String,Object> root,String props,Column val){
+        protected void appendNestedProp(Map<String,Object> root,String props,Column val){
         	if(props.indexOf(NESTED_SPLITTER)>0){
 	        	String[] nested = StringUtils.split(props, NESTED_SPLITTER, 2);//第一个分隔符
 	    		Map<String,Object> child = (Map<String,Object>)root.get(nested[0]);
@@ -287,17 +293,22 @@ public class ElasticWriter extends Writer {
 				}
 				
 				appendNestedProp(child,nested[1],val);
-        	}else
-        	{
-        		if(val instanceof DateColumn)//日期型
-        			root.put(props, 
-        					null == val.getRawData()?null:
-        					DateFormatUtils.ISO_DATETIME_TIME_ZONE_FORMAT//2009-03-20T22:07:01+08:00
-        						.format(val.asDate())
-        					);
-        		else
-        			root.put(props, val.getRawData());
         	}
+        	else{
+        		setColumValue(root,props,val);
+        	}
+        }
+        
+        protected void setColumValue(Map<String,Object> obj,String props,Column val)
+        {
+        	if(val instanceof DateColumn)//日期型
+        		obj.put(props, 
+    					null == val.getRawData()?null:
+    					DateFormatUtils.ISO_DATETIME_TIME_ZONE_FORMAT//2009-03-20T22:07:01+08:00
+    						.format(val.asDate())
+    					);
+    		else
+    			obj.put(props, val.getRawData());
         }
 
         @Override
@@ -312,7 +323,7 @@ public class ElasticWriter extends Writer {
         /**
          * 2016-01-01 返回 1601
          */
-        String getShardPattern(Date dt){
+        private String getShardPattern(Date dt){
         	Calendar calc = Calendar.getInstance();
         	calc.setTime(dt);
         	
