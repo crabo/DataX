@@ -12,10 +12,12 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.DateFormatUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.alibaba.datax.common.element.Column;
+import com.alibaba.datax.common.element.DateColumn;
 import com.alibaba.datax.common.element.Record;
 import com.alibaba.datax.common.exception.DataXException;
 import com.alibaba.datax.common.plugin.RecordReceiver;
@@ -286,7 +288,16 @@ public class ElasticWriter extends Writer {
 				
 				appendNestedProp(child,nested[1],val);
         	}else
-        		root.put(props, val.getRawData());
+        	{
+        		if(val instanceof DateColumn)//日期型
+        			root.put(props, 
+        					null == val.getRawData()?null:
+        					DateFormatUtils.ISO_DATETIME_TIME_ZONE_FORMAT//2009-03-20T22:07:01+08:00
+        						.format(val.asDate())
+        					);
+        		else
+        			root.put(props, val.getRawData());
+        	}
         }
 
         @Override
