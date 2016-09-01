@@ -142,10 +142,11 @@ public class VerticaWriter extends Writer {
         String copyfrom;
         String getCopyFrom(){
         	if(copyfrom==null){
-        		copyfrom=String.format("copy %s (%s) from STDIN %s DIRECT no commit",
+        		copyfrom=String.format("copy %s (%s) from STDIN %s REJECTED DATA E'%s.log' DIRECT no commit",
             			commonRdbmsWriterTask.getTable(), 
             			StringUtils.join(commonRdbmsWriterTask.getColumns(),','), 
-            			this.copyFromEncoding);
+            			this.copyFromEncoding,
+            			this.tempFile);
         	}
         	return copyfrom;
         }
