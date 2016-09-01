@@ -228,5 +228,31 @@ public class DeltaCommonRdbmsWriter{
         	}
         	super.post(writerSliceConfig);
         }
+        
+        public int getBatchSize()
+        {
+        	return this.batchSize;
+        }
+        public int getBatchByteSize()
+        {
+        	return this.batchByteSize;
+        }
+        public String getTable()
+        {
+        	return this.table;
+        }
+        public String getWriteMode()
+        {
+        	return this.writeMode;
+        }
+        public List<String> getColumns()
+        {
+        	return this.columns;
+        }
+        public Connection createConnection()
+        {
+        	return DBUtil.getConnection(this.dataBaseType,
+                    this.jdbcUrl, username, password);
+        }
     }
 }
