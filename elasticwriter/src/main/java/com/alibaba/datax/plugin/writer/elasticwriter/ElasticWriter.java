@@ -3,7 +3,6 @@ package com.alibaba.datax.plugin.writer.elasticwriter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
@@ -13,6 +12,14 @@ import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.DateFormatUtils;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpHost;
+import org.apache.http.ParseException;
+import org.apache.http.entity.ContentType;
+import org.apache.http.nio.entity.NStringEntity;
+import org.apache.http.util.EntityUtils;
+import org.elasticsearch.client.Response;
+import org.elasticsearch.client.RestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,14 +33,6 @@ import com.alibaba.datax.common.util.Configuration;
 import com.alibaba.datax.plugin.rdbms.util.DBUtilErrorCode;
 import com.alibaba.datax.plugin.rdbms.writer.Constant;
 import com.alibaba.datax.plugin.rdbms.writer.Key;
-
-import org.elasticsearch.client.Response;
-import org.elasticsearch.client.RestClient;
-import org.apache.http.HttpHost;
-import org.apache.http.ParseException;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.util.EntityUtils;
-
 import com.alibaba.fastjson.JSON;
 
 public class ElasticWriter extends Writer {
@@ -144,6 +143,9 @@ public class ElasticWriter extends Writer {
         @Override
         public void startWrite(RecordReceiver recordReceiver) {
         	RestClient client = RestClient.builder(this.hosts)
+        			//.setHttpClientConfigCallback(b -> b.setDefaultHeaders(
+        	        //        Collections.singleton(new BasicHeader(HttpHeaders.ACCEPT_ENCODING, "gzip"))))
+    	            //.setRequestConfigCallback(b -> b.setContentCompressionEnabled(true))
         		.build();
         	
         	startWriteWithConn(recordReceiver,client);
@@ -195,12 +197,34 @@ public class ElasticWriter extends Writer {
         
         protected void postRequest(RestClient conn,StringBuilder sb) throws IOException
         {
-        	StringEntity entity = new StringEntity(sb.toString(),"utf-8");
+        	HttpEntity entity = new NStringEntity(sb.toString(), ContentType.APPLICATION_JSON);
+
         	Response resp = conn.performRequest("POST", "/_bulk", this.REQUEST_PARAMS, entity);
-        	
         	if(failInBulk(resp)){
         		//throw new IllegalArgumentException("_bulk post failed");
         	}
+        	
+        	/*
+        	conn.performRequest("POST", "/_bulk", this.REQUEST_PARAMS, entity, new ResponseListener(){
+				@Override
+				public void onSuccess(Response resp) {
+					try {
+						if(failInBulk(resp)){
+							
+						}
+					} catch (ParseException e) {
+						e.printStackTrace();
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+				}
+
+				@Override
+				public void onFailure(Exception ex) {
+					LOG.warn("ElasticSearch '_bulk' post failed, exception=\r\n{}",ex);
+				}
+        		
+        	});*/
         }
         private boolean failInBulk(Response resp) throws ParseException, IOException{
         	String result = EntityUtils.toString(resp.getEntity(), StandardCharsets.UTF_8);

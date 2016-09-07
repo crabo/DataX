@@ -1,5 +1,8 @@
 package com.alibaba.datax.plugin.writer.verticawriter;
 
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -91,7 +94,7 @@ public class VerticaWriter extends Writer {
         private int batchByteSize;
         private int columnNumber;
         private String fieldDelimiter;
-        private String tempFile;
+        //private String tempFile;
         private static final String NEWLINE_FLAG = System.getProperty("line.separator", "\n");
 
         @Override
@@ -105,7 +108,7 @@ public class VerticaWriter extends Writer {
             
             this.copyFromEncoding = writerSliceConfig.getString("copyFromEncoding","delimiter E'\\t' NULL 'NULL'");
             this.fieldDelimiter = this.writerSliceConfig.getString("fieldDelimiter", "\t");
-            this.tempFile = "vertica_job_"+new Date().getTime()+".csv";
+            //this.tempFile = "vertica_reject_"+new Date().getTime()+".csv";
         }
 
         @Override
@@ -124,9 +127,10 @@ public class VerticaWriter extends Writer {
 
         @Override
         public void post() {
-        	File temp = new File(this.tempFile);
+        	/*File temp = new File(this.tempFile);
         	if(temp.exists())
         		temp.delete();
+        		*/
         }
 
         @Override
@@ -146,7 +150,7 @@ public class VerticaWriter extends Writer {
             			commonRdbmsWriterTask.getTable(), 
             			StringUtils.join(commonRdbmsWriterTask.getColumns(),','), 
             			this.copyFromEncoding,
-            			this.tempFile);
+            			"vertica_rejected_"+System.currentTimeMillis());
         	}
         	return copyfrom;
         }
@@ -169,14 +173,13 @@ public class VerticaWriter extends Writer {
         }
         
         public void startWriteWithConnection(RecordReceiver recordReceiver,Connection conn){
-        	FileOutputStream fs = null;
+        	ByteArrayOutputStream fs = new ByteArrayOutputStream();
         	
         	int bufferBytes = 0;
             int count=0;
             try {
             	VerticaCopyStream vertica = new VerticaCopyStream((VerticaConnection)conn,getCopyFrom());
             	
-            	fs = new FileOutputStream(this.tempFile);
                 Record record;
                 while ((record = recordReceiver.getFromReader()) != null) {
                 	fs.write(recordToBytes(record));
@@ -184,17 +187,18 @@ public class VerticaWriter extends Writer {
                     count++;
 
                     if (count >= batchSize || bufferBytes>=this.batchByteSize) {
-                    	fs.close();
-                    	fs = flushBatch(fs,vertica);
+                    	flushBatch(fs,vertica);
                     	conn.commit();
                     	
                         bufferBytes = 0;
                         count=0;
                     }
                 }
-                
-                fs = flushBatch(fs,vertica);
-                conn.commit();
+                if(fs.size()>0)
+                {
+	                flushBatch(fs,vertica);
+	                conn.commit();
+                }
                 
                 bufferBytes=0;
             } catch (Exception e) {
@@ -219,18 +223,15 @@ public class VerticaWriter extends Writer {
 				}
             }
         }
-        FileOutputStream flushBatch(FileOutputStream writer,VerticaCopyStream vertica) throws IOException, SQLException{
-        	writer.close();
-        	
-        	FileInputStream reader = new FileInputStream(this.tempFile);
+        void flushBatch(ByteArrayOutputStream writer,VerticaCopyStream vertica) throws IOException, SQLException{
+        	writer.flush();
+        	ByteArrayInputStream reader = new ByteArrayInputStream(writer.toByteArray());
         	vertica.addStream(reader);
         	vertica.execute();
         	long count = vertica.finish();
         	LOG.debug("flush COPY FROM with '{}' records",count);
         	reader.close();
-        	
-        	writer=new FileOutputStream(this.tempFile);
-        	return writer;
+        	writer.reset();
         }
         
         private byte[] recordToBytes(Record record) {

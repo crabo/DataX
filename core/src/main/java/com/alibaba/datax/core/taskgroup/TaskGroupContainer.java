@@ -427,8 +427,10 @@ public class TaskGroupContainer extends AbstractContainer {
     			{
 	    			br = new BufferedReader(new FileReader(f));
 	    			return br.readLine();
+    			}else
+    			{
+    				LOG.warn("failed to load ts_file '{}' !",f.getAbsolutePath());
     			}
-
     		} catch (Exception e) {
 				e.printStackTrace();
     		}finally{
