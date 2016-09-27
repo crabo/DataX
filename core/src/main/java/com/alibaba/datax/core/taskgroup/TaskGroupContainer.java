@@ -202,7 +202,7 @@ public class TaskGroupContainer extends AbstractContainer {
                 if (failedOrKilled) {
                     lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
                             lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
-
+                    DeltaJobTimestamp.notifyError(this.configuration, lastTaskGroupContainerCommunication.getThrowable());
                     throw DataXException.asDataXException(
                             FrameworkErrorCode.PLUGIN_RUNTIME_ERROR, lastTaskGroupContainerCommunication.getThrowable());
                 }
@@ -301,7 +301,8 @@ public class TaskGroupContainer extends AbstractContainer {
             }
             nowTaskGroupContainerCommunication.setState(State.FAILED);
             this.containerCommunicator.report(nowTaskGroupContainerCommunication);
-
+            
+            DeltaJobTimestamp.notifyError(this.configuration, e);
             throw DataXException.asDataXException(
                     FrameworkErrorCode.RUNTIME_ERROR, e);
         }finally {
@@ -374,11 +375,36 @@ public class TaskGroupContainer extends AbstractContainer {
     	private static final Logger LOG = LoggerFactory
                 .getLogger(DeltaJobTimestamp.class);
     	
+    	public static void notifyError(Configuration cfg,Throwable ex){
+    		String file = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
+    		File f = new File(file+".error");
+    		FileWriter fw=null;
+			try {
+				fw = new FileWriter(f);
+				fw.append(getNowString());
+				fw.append(" - \t");
+				fw.append(ex==null?"no exception.":ex.toString());
+			} catch (IOException e) {
+				e.printStackTrace();
+			}finally{
+				if(fw!=null)
+					try {
+						fw.close();
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+			}
+    		
+    	}
+    	
     	public static void read(Configuration cfg){
     		String file = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
     		
     		String start=fromFile(file);
-    		cfg.set("job.setting.ts_start", start);
+            if(start==null || start.length()==0)//读取异常？从上次job中读取
+                start = cfg.getString("job.setting.ts_end",getNowString());
+            
+            cfg.set("job.setting.ts_start", start);
     		cfg.set("job.setting.ts_end", getNowString());
     	}
     	public static void apply(Configuration cfg,Configuration task){
@@ -441,7 +467,7 @@ public class TaskGroupContainer extends AbstractContainer {
 						e.printStackTrace();
 					}
     		}
-    		return getNowString();
+    		return null;
     	}
     	static void toFile(String path,String val){
     		BufferedWriter bw=null;
