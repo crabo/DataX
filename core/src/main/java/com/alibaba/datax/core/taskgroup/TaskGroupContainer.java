@@ -514,12 +514,12 @@ public class TaskGroupContainer extends AbstractContainer {
 						e1.printStackTrace();
 					}
 				}
+    			calc.add(Calendar.DATE, days);
     			
     			if(calc.getTime().getTime()>now.getTime()){//超过now()， 重置为now()
     				calc.setTime(now);
         			calc.add(Calendar.SECOND, adjust_sec);
-    			}else
-    				calc.add(Calendar.DATE, days);
+    			}	
     		}
     		
     		return TS_FORMAT.format(calc.getTime());
