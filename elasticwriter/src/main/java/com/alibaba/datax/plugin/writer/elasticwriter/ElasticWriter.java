@@ -3,12 +3,14 @@ package com.alibaba.datax.plugin.writer.elasticwriter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.DateFormatUtils;
@@ -106,6 +108,7 @@ public class ElasticWriter extends Writer {
         protected HttpHost[] hosts;
         private Map<String, String> REQUEST_PARAMS;
 
+        static Map<String,RestClient> ClientHolder=new HashMap<String,RestClient>();
 
 
         @Override
@@ -139,16 +142,26 @@ public class ElasticWriter extends Writer {
         @Override
         public void prepare() {
         }
-
+        
+        RestClient newClient(){
+        	String key = this.hosts[0].toHostString();
+        	if(!ClientHolder.containsKey(key))
+        	{
+        		ClientHolder.put(key, 
+    				RestClient.builder(this.hosts)
+    				.setMaxRetryTimeoutMillis(30000)
+            			//.setHttpClientConfigCallback(b -> b.setDefaultHeaders(
+            	        //        Collections.singleton(new BasicHeader(HttpHeaders.ACCEPT_ENCODING, "gzip"))))
+        	            //.setRequestConfigCallback(b -> b.setContentCompressionEnabled(true))
+            		.build()
+        				);
+        	}
+        	return ClientHolder.get(key);
+        }
         @Override
         public void startWrite(RecordReceiver recordReceiver) {
-        	RestClient client = RestClient.builder(this.hosts)
-        			//.setHttpClientConfigCallback(b -> b.setDefaultHeaders(
-        	        //        Collections.singleton(new BasicHeader(HttpHeaders.ACCEPT_ENCODING, "gzip"))))
-    	            //.setRequestConfigCallback(b -> b.setContentCompressionEnabled(true))
-        		.build();
         	
-        	startWriteWithConn(recordReceiver,client);
+        	startWriteWithConn(recordReceiver,newClient());
         }
         
         private void startWriteWithConn(RecordReceiver recordReceiver,RestClient conn){
@@ -162,14 +175,14 @@ public class ElasticWriter extends Writer {
 
                     if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
                     	doBulkInsert(conn, writeBuffer);
-                        writeBuffer.clear();
+                    	afterBulk(writeBuffer);
                         bufferBytes = 0;
                     }
                 }
                 
                 if (!writeBuffer.isEmpty()) {
                 	doBulkInsert(conn, writeBuffer);
-                    writeBuffer.clear();
+                	afterBulk(writeBuffer);
                     bufferBytes = 0;
                 }
             } catch (Exception e) {
@@ -178,32 +191,29 @@ public class ElasticWriter extends Writer {
             } finally {
                 writeBuffer.clear();
                 bufferBytes = 0;
-                
-                try {
-                	if(conn!=null)
-                		conn.close();
-                	conn=null;
-				} catch (IOException e) {
-					LOG.info("ElasticSearch RestClient error on close",e);
-				}
+                conn=null;
             }
         }
         private void doBulkInsert(RestClient conn,List<Record> records) throws IOException{
         	StringBuilder sb = new StringBuilder();
         	for(Record r : records)
         		appendBulk(sb,r,getNestedDoc(r));
-        	postRequest(conn,sb);
+        	
+    		postRequest(conn,sb);
+        }
+        protected void afterBulk(List<Record> writeBuffer){
+        	writeBuffer.clear();
+        	this.indices.clear();
         }
         
         protected void postRequest(RestClient conn,StringBuilder sb) throws IOException
         {
-        	HttpEntity entity = new NStringEntity(sb.toString(), ContentType.APPLICATION_JSON);
-
-        	Response resp = conn.performRequest("POST", "/_bulk", this.REQUEST_PARAMS, entity);
-        	if(failInBulk(resp)){
-        		//throw new IllegalArgumentException("_bulk post failed");
-        	}
+        	//updateRefresh(conn,true);//STOP
         	
+        	HttpEntity entity = new NStringEntity(sb.toString(), ContentType.APPLICATION_JSON);
+        	doPost(conn,entity);
+        	
+        	//updateRefresh(conn,false);//resume
         	/*
         	conn.performRequest("POST", "/_bulk", this.REQUEST_PARAMS, entity, new ResponseListener(){
 				@Override
@@ -226,6 +236,71 @@ public class ElasticWriter extends Writer {
         		
         	});*/
         }
+        void doPost(RestClient conn,HttpEntity entity)throws IOException{
+        	int retires=0;
+        	do{
+        		try
+            	{
+    	        	Response resp = conn.performRequest("POST", "/_bulk", this.REQUEST_PARAMS, entity);
+    	        	retires=100;//SUCCESS, BREAK NOW!!!!
+    	        	
+    	        	if(failInBulk(resp)){
+    	        		//throw new IllegalArgumentException("_bulk post failed");
+    	        	}
+    	        }
+        		catch(RuntimeException e){
+        			if(e.getCause()!=null && e.getCause() instanceof TimeoutException){
+        				retires++;
+        				
+        				try {
+							Thread.sleep(3000*retires);
+						} catch (InterruptedException e1) {
+						}
+        				LOG.warn("ElasticSearch RestClient timeout-error on request, {}# retring ....",retires);
+        			}else
+        				throw e;
+        		}
+        		catch(IOException ex){
+    	        	retires++;
+            		
+            		try {
+            			if(retires>10){//NETWORK ERROR?
+            				LOG.warn("ElasticSearch RestClient IO-error too many times, low down 'batchSize' setting please!");
+            				Thread.sleep(1000*2^(retires-10));
+            			}
+    					Thread.sleep(3000*retires);
+    				} catch (InterruptedException e) {
+    				}
+            		LOG.warn("ElasticSearch RestClient IO-error on request, {}# retring ....\n {}",retires,ex);
+            	}
+        	}while(retires<18);
+        }
+        
+      
+        List<String> indices=new ArrayList<String>();//每一个批次设计的index数目
+        void updateRefresh(RestClient conn,boolean stopRefresh){
+        	if(indices==null || indices.isEmpty()) return;
+        	
+        	try
+        	{
+        		HttpEntity entity = new NStringEntity("{ \"index\" : { \"refresh_interval\" : "
+        				+(stopRefresh? "-1":"\"5s\"")
+        				+"} }", ContentType.APPLICATION_JSON);
+        		
+        		
+	        	conn.performRequest("PUT", 
+	        			"/"+String.join(",", indices)+"/_settings",
+	        			this.REQUEST_PARAMS, entity);
+	        	
+	        	//if(failInBulk(resp)){
+	        		//throw new IllegalArgumentException("_bulk post failed");
+	        	//}
+	        }catch(IOException ex){
+	        	LOG.warn("ElasticSearch RestClient error on update 'refresh_interval': {}",ex.getMessage());
+	        }
+        }
+        
+        
         private boolean failInBulk(Response resp) throws ParseException, IOException{
         	String result = EntityUtils.toString(resp.getEntity(), StandardCharsets.UTF_8);
         	if(resp.getStatusLine().getStatusCode()>HTTP_STATUS_OK
@@ -273,6 +348,8 @@ public class ElasticWriter extends Writer {
         				getShardPattern(r.getColumn(this.dateField).asDate())
         			);
         	}
+        	//if(!indices.contains(idx))//每一个批次设计的index数目
+        	//	indices.add(idx);
         	
         	sb.append("{\"_index\":\"").append(idx)
         		.append("\",\"_type\":\"").append(this.document)
@@ -343,17 +420,20 @@ public class ElasticWriter extends Writer {
         public void destroy() {
         }
 
-        int _prevMonth,_prevShard;//flyweight pattern
+        int _prevMonth=-1,_prevShard;//flyweight pattern
         /**
          * 2016-01-01 返回 1601
          */
         private String getShardPattern(Date dt){
+        	if(dt==null){
+        		return "0001";
+        	}
         	Calendar calc = Calendar.getInstance();
         	calc.setTime(dt);
         	
-    		int m=calc.get(Calendar.MONTH);
+    		int m=calc.get(Calendar.MONTH);//start form 0-11
     		if(_prevMonth!=m){
-    			_prevShard = (int) (Math.ceil((m-1)/this.MONTH_PER_SHARD)+1);
+    			_prevShard = (int) (Math.ceil(m/this.MONTH_PER_SHARD)+1);
     			_prevMonth=m;
     		}
     		

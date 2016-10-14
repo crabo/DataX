@@ -87,7 +87,8 @@ public class JsonWriter extends Writer {
         @Override
         public void prepare() {
         }
-
+        
+        final int BUFFER_SIZE=1000000;//1m
         @Override
         public void startWrite(RecordReceiver recordReceiver) {
         	BufferedOutputStream fs = null;
@@ -95,7 +96,7 @@ public class JsonWriter extends Writer {
 				fs = new BufferedOutputStream(
 						new FileOutputStream("es_data.json")
 	        	        //new GZIPOutputStream(new FileOutputStream("es_data.json.gz"))
-	        	        );
+	        	        ,BUFFER_SIZE);
 				startWriteWithConn(recordReceiver,fs);
 			} catch (IOException e) {
 				LOG.warn("open file 'es_data.json' error",e);
@@ -156,7 +157,6 @@ public class JsonWriter extends Writer {
         				this.getNestedDoc(r)).getBytes(UTF_8));
         		conn.write("\n".getBytes(UTF_8));
         	}
-        	conn.flush();
         }
         
         private Map<String,Object> getNestedDoc(Record r){

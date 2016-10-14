@@ -202,9 +202,14 @@ public class TaskGroupContainer extends AbstractContainer {
                 if (failedOrKilled) {
                     lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
                             lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
-                    DeltaJobTimestamp.notifyError(this.configuration, lastTaskGroupContainerCommunication.getThrowable());
+                    Throwable ex = lastTaskGroupContainerCommunication.getThrowable();
+                    DeltaJobTimestamp.notifyError(this.configuration, ex);
+                    if(ex instanceof OutOfMemoryError){//by crabo
+                    	System.exit(9);
+                    }
+                    
                     throw DataXException.asDataXException(
-                            FrameworkErrorCode.PLUGIN_RUNTIME_ERROR, lastTaskGroupContainerCommunication.getThrowable());
+                            FrameworkErrorCode.PLUGIN_RUNTIME_ERROR, ex);
                 }
                 
                 //3.有任务未执行，且正在运行的任务数小于最大通道限制
@@ -381,7 +386,7 @@ public class TaskGroupContainer extends AbstractContainer {
     		FileWriter fw=null;
 			try {
 				fw = new FileWriter(f);
-				fw.append(getNowString());
+				fw.append(getIntervalTime(null,0,0));
 				fw.append(" - \t");
 				fw.append(ex==null?"no exception.":ex.toString());
 			} catch (IOException e) {
@@ -401,11 +406,14 @@ public class TaskGroupContainer extends AbstractContainer {
     		String file = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
     		
     		String start=fromFile(file);
-            if(start==null || start.length()==0)//读取异常？从上次job中读取
-                start = cfg.getString("job.setting.ts_end",getNowString());
+            if(start==null || start.length()==0)//文件读取异常？从上次job中读取
+                start = cfg.getString("job.setting.ts_end",getIntervalTime(null,0,cfg.getInt("job.setting.ts_adjustnow_sec",0)));
             
             cfg.set("job.setting.ts_start", start);
-    		cfg.set("job.setting.ts_end", getNowString());
+    		cfg.set("job.setting.ts_end", getIntervalTime(start
+    					,cfg.getInt("job.setting.ts_batch_days",0)
+    					,cfg.getInt("job.setting.ts_adjustnow_sec",0)
+    				));
     	}
     	public static void apply(Configuration cfg,Configuration task){
     		String sql = task.getString("reader.parameter.ts_querySql");//original sql
@@ -486,9 +494,35 @@ public class TaskGroupContainer extends AbstractContainer {
 					}
     		}
     	}
-    	static String getNowString(){
-    		return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS")
-    				.format(new Date());
+    	static SimpleDateFormat TS_FORMAT=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+    	static String getIntervalTime(String start,int days,int adjust_sec){
+    		Calendar calc = Calendar.getInstance();
+    		
+    		Date now=new Date();
+    		if(days<=0){//未设置间隔， 返回Now
+    			calc.setTime(now);
+    			calc.add(Calendar.SECOND, adjust_sec);
+    		}else//返回start后的n个小时
+    		{
+    			try {
+					calc.setTime(TS_FORMAT.parse(start));
+				} catch (ParseException e) {
+					e.printStackTrace();
+					try {
+						calc.setTime(new SimpleDateFormat().parse(start));
+					} catch (ParseException e1) {
+						e1.printStackTrace();
+					}
+				}
+    			
+    			if(calc.getTime().getTime()>now.getTime()){//超过now()， 重置为now()
+    				calc.setTime(now);
+        			calc.add(Calendar.SECOND, adjust_sec);
+    			}else
+    				calc.add(Calendar.DATE, days);
+    		}
+    		
+    		return TS_FORMAT.format(calc.getTime());
     	}
     }
 

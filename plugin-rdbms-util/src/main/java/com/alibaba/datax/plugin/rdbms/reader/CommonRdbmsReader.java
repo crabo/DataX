@@ -177,7 +177,7 @@ public class CommonRdbmsReader {
 
             PerfTrace.getInstance().addTaskDetails(taskId, table + "," + basicMsg);
 
-            LOG.info("Begin to read record by Sql: [{}\n] {}.",
+            LOG.debug("Begin to read record by Sql: [{}\n] {}.",
                     querySql, basicMsg);
             PerfRecord queryPerfRecord = new PerfRecord(taskGroupId,taskId, PerfRecord.PHASE.SQL_QUERY);
             queryPerfRecord.start();

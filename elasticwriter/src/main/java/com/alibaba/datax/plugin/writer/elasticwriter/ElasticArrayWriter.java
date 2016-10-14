@@ -74,7 +74,7 @@ public class ElasticArrayWriter extends Writer {
                     if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
                     	record = trySplitGroupById(recordReceiver,writeBuffer);
                     	doBulkInsert(conn, writeBuffer);
-                        writeBuffer.clear();
+                        super.afterBulk(writeBuffer);
                         bufferBytes = 0;
                         
                         if(record!=null)//下一batch的第一条记录
@@ -87,7 +87,7 @@ public class ElasticArrayWriter extends Writer {
                 }
                 if (!writeBuffer.isEmpty()) {
                 	doBulkInsert(conn, writeBuffer);
-                    writeBuffer.clear();
+                    super.afterBulk(writeBuffer);
                     bufferBytes = 0;
                 }
             } catch (Exception e) {
