@@ -41,7 +41,7 @@ writeMode=update时
     "job": {
         "setting": {
         	"ts_adjustnow_sec":-10, //修正mysql和本机now时间的误差： ts_start=now()+ (正负的adjust_sec) 
-            "ts_batch_days":30, //不设置，则ts_end=now(), 设置时： ts_end=ts_start+days
+            "ts_batch_mins":30, //不设置，则ts_end=now(), 设置时： ts_end=ts_start+mins； 若sql未配置$ts_end 会自动regex匹配$start 末尾追加 and {time_column}<='$ts_end' 
             "ts_interval_sec":15, //设置则启用task无限循环执行模式，必须配合delta增量配置
             "ts_file":"verticajob.ts.txt", //启用delta增量配置使用的持久时间戳:任务启动时间
             "speed": {
