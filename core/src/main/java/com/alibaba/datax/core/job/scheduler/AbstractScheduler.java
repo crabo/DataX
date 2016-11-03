@@ -73,7 +73,7 @@ public abstract class AbstractScheduler {
                  */
                 Communication nowJobContainerCommunication = this.containerCommunicator.collect();
                 nowJobContainerCommunication.setTimestamp(System.currentTimeMillis());
-                LOG.debug(nowJobContainerCommunication.toString());
+                //LOG.debug(nowJobContainerCommunication.toString());
 
                 //汇报周期
                 long now = System.currentTimeMillis();
@@ -87,8 +87,10 @@ public abstract class AbstractScheduler {
                 }
 
                 errorLimit.checkRecordLimit(nowJobContainerCommunication);
-
-                if (nowJobContainerCommunication.getState() == State.SUCCEEDED) {
+                
+                if (nowJobContainerCommunication.getState() == State.SUCCEEDED
+                		&& configurations.get(0).getInt("job.setting.ts_interval_sec",0)<1) //by crabo: no quit!
+                {
                     LOG.info("Scheduler accomplished all tasks.");
                     break;
                 }

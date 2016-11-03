@@ -162,9 +162,9 @@ public class Engine {
             LOG.info(vmInfo.toString());
         }
 
-        LOG.info("\n" + Engine.filterJobConfiguration(configuration) + "\n");
+        LOG.debug("\n" + Engine.filterJobConfiguration(configuration) + "\n");
 
-        LOG.debug(configuration.toJSON());
+        //LOG.debug(configuration.toJSON());
 
         ConfigurationValidate.doValidate(configuration);
         Engine engine = new Engine();

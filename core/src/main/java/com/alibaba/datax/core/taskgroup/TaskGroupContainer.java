@@ -42,6 +42,7 @@ import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.regex.Matcher;
 
 public class TaskGroupContainer extends AbstractContainer {
     private static final Logger LOG = LoggerFactory
@@ -144,158 +145,174 @@ public class TaskGroupContainer extends AbstractContainer {
             int ts_interval = this.configuration.getInt("job.setting.ts_interval_sec",0);
             do{
             
-            Map<Integer, Configuration> taskConfigMap = buildTaskConfigMap(taskConfigs); //taskId与task配置
-            List<Configuration> taskQueue = buildRemainTasks(taskConfigs); //待运行task列表
-            Map<Integer, TaskExecutor> taskFailedExecutorMap = new HashMap<Integer, TaskExecutor>(); //taskId与上次失败实例
-            List<TaskExecutor> runTasks = new ArrayList<TaskExecutor>(channelNumber); //正在运行task
-            Map<Integer, Long> taskStartTimeMap = new HashMap<Integer, Long>(); //任务开始时间
-
-            long lastReportTimeStamp = 0;
-            Communication lastTaskGroupContainerCommunication = new Communication();
-            
-            DeltaJobTimestamp.read(this.configuration);//by crabo ts_start：从外部文件读取时间戳
-            while (true) {
-            	//1.判断task状态
-            	boolean failedOrKilled = false;
-            	Map<Integer, Communication> communicationMap = containerCommunicator.getCommunicationMap();
-            	for(Map.Entry<Integer, Communication> entry : communicationMap.entrySet()){
-            		Integer taskId = entry.getKey();
-            		Communication taskCommunication = entry.getValue();
-                    if(!taskCommunication.isFinished()){
-                        continue;
-                    }
-                    TaskExecutor taskExecutor = removeTask(runTasks, taskId);
-
-                    //上面从runTasks里移除了，因此对应在monitor里移除
-                    taskMonitor.removeTask(taskId);
-
-                    //失败，看task是否支持failover，重试次数未超过最大限制
-            		if(taskCommunication.getState() == State.FAILED){
-                        taskFailedExecutorMap.put(taskId, taskExecutor);
-            			if(taskExecutor.supportFailOver() && taskExecutor.getAttemptCount() < taskMaxRetryTimes){
-                            taskExecutor.shutdown(); //关闭老的executor
-                            containerCommunicator.resetCommunication(taskId); //将task的状态重置
-            				Configuration taskConfig = taskConfigMap.get(taskId);
-            				taskQueue.add(taskConfig); //重新加入任务列表
-            			}else{
-            				failedOrKilled = true;
-                			break;
-            			}
-            		}else if(taskCommunication.getState() == State.KILLED){
-            			failedOrKilled = true;
-            			break;
-            		}else if(taskCommunication.getState() == State.SUCCEEDED){
-                        Long taskStartTime = taskStartTimeMap.get(taskId);
-                        if(taskStartTime != null){
-                            Long usedTime = System.currentTimeMillis() - taskStartTime;
-                            LOG.info("taskGroup[{}] taskId[{}] is successed, used[{}]s",
-                                    this.taskGroupId, taskId, usedTime/1000);
-                            //usedTime*1000*1000 转换成PerfRecord记录的ns，这里主要是简单登记，进行最长任务的打印。因此增加特定静态方法
-                            PerfRecord.addPerfRecord(taskGroupId, taskId, PerfRecord.PHASE.TASK_TOTAL,taskStartTime, usedTime * 1000L * 1000L);
-                            taskStartTimeMap.remove(taskId);
-                            taskConfigMap.remove(taskId);
-                        }
-                    }
-            	}
-            	
-                // 2.发现该taskGroup下taskExecutor的总状态失败则汇报错误
-                if (failedOrKilled) {
-                    lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
-                            lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
-                    Throwable ex = lastTaskGroupContainerCommunication.getThrowable();
-                    DeltaJobTimestamp.notifyError(this.configuration, ex);
-                    if(ex instanceof OutOfMemoryError){//by crabo
-                    	System.exit(9);
-                    }
-                    
-                    throw DataXException.asDataXException(
-                            FrameworkErrorCode.PLUGIN_RUNTIME_ERROR, ex);
-                }
-                
-                //3.有任务未执行，且正在运行的任务数小于最大通道限制
-                Iterator<Configuration> iterator = taskQueue.iterator();
-                while(iterator.hasNext() && runTasks.size() < channelNumber){
-                    Configuration taskConfig = iterator.next();
-                    Integer taskId = taskConfig.getInt(CoreConstant.TASK_ID);
-                    int attemptCount = 1;
-                    TaskExecutor lastExecutor = taskFailedExecutorMap.get(taskId);
-                    if(lastExecutor!=null){
-                        attemptCount = lastExecutor.getAttemptCount() + 1;
-                        long now = System.currentTimeMillis();
-                        long failedTime = lastExecutor.getTimeStamp();
-                        if(now - failedTime < taskRetryIntervalInMsec){  //未到等待时间，继续留在队列
-                            continue;
-                        }
-                        if(!lastExecutor.isShutdown()){ //上次失败的task仍未结束
-                            if(now - failedTime > taskMaxWaitInMsec){
-                                markCommunicationFailed(taskId);
-                                reportTaskGroupCommunication(lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
-                                throw DataXException.asDataXException(CommonErrorCode.WAIT_TIME_EXCEED, "task failover等待超时");
-                            }else{
-                                lastExecutor.shutdown(); //再次尝试关闭
-                                continue;
-                            }
-                        }else{
-                            LOG.info("taskGroup[{}] taskId[{}] attemptCount[{}] has already shutdown",
-                                    this.taskGroupId, taskId, lastExecutor.getAttemptCount());
-                        }
-                    }
-                    Configuration taskConfigForRun = taskMaxRetryTimes > 1 ? taskConfig.clone() : taskConfig;
-                    
-                    if(ts_interval>0)
-                    	DeltaJobTimestamp.apply(this.configuration,taskConfigForRun);//by crabo ts_start：从外部文件读取时间戳
-                	TaskExecutor taskExecutor = new TaskExecutor(taskConfigForRun, attemptCount);
-                    taskStartTimeMap.put(taskId, System.currentTimeMillis());
-                	taskExecutor.doStart();
-
-                    iterator.remove();
-                    runTasks.add(taskExecutor);
-
-                    //上面，增加task到runTasks列表，因此在monitor里注册。
-                    taskMonitor.registerTask(taskId, this.containerCommunicator.getCommunication(taskId));
-
-                    taskFailedExecutorMap.remove(taskId);
-                    LOG.debug("taskGroup[{}] taskId[{}] attemptCount[{}] is started",
-                            this.taskGroupId, taskId, attemptCount);
-                }
-
-                //4.任务列表为空，executor已结束, 搜集状态为success--->成功
-                if (taskQueue.isEmpty() && isAllTaskDone(runTasks) && containerCommunicator.collectState() == State.SUCCEEDED) {
-                	// 成功的情况下，也需要汇报一次。否则在任务结束非常快的情况下，采集的信息将会不准确
-                    lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
-                            lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
-                    
-                    if(ts_interval>0){
-	                    DeltaJobTimestamp.write(this.configuration);//by crabo ts_start:更新时间戳
-	                    containerCommunicator.resetCommunication(0);//by crabo: do NOT close job!!!
-                    }
-                    LOG.debug("taskGroup[{}] completed it's tasks.", this.taskGroupId);
-                    break;
-                }
-
-                // 5.如果当前时间已经超出汇报时间的interval，那么我们需要马上汇报
-                long now = System.currentTimeMillis();
-                if (now - lastReportTimeStamp > reportIntervalInMillSec) {
-                    lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
-                            lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
-
-                    lastReportTimeStamp = now;
-
-                    //taskMonitor对于正在运行的task，每reportIntervalInMillSec进行检查
-                    for(TaskExecutor taskExecutor:runTasks){
-                        taskMonitor.report(taskExecutor.getTaskId(),this.containerCommunicator.getCommunication(taskExecutor.getTaskId()));
-                    }
-
-                }
-
-                Thread.sleep(sleepIntervalInMillSec);
-            }
-
-            //6.最后还要汇报一次
-        	reportTaskGroupCommunication(lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
+	            Map<Integer, Configuration> taskConfigMap = buildTaskConfigMap(taskConfigs); //taskId与task配置
+	            List<Configuration> taskQueue = buildRemainTasks(taskConfigs); //待运行task列表
+	            Map<Integer, TaskExecutor> taskFailedExecutorMap = new HashMap<Integer, TaskExecutor>(); //taskId与上次失败实例
+	            List<TaskExecutor> runTasks = new ArrayList<TaskExecutor>(channelNumber); //正在运行task
+	            Map<Integer, Long> taskStartTimeMap = new HashMap<Integer, Long>(); //任务开始时间
+	
+	            long lastReportTimeStamp = 0;
+	            Communication lastTaskGroupContainerCommunication = new Communication();
+	            
+	            DeltaJobTimestamp.read(this.configuration);//by crabo ts_start：从外部文件读取时间戳
+	            while (true) {
+	            	//1.判断task状态
+	            	boolean failedOrKilled = false;
+	            	Map<Integer, Communication> communicationMap = containerCommunicator.getCommunicationMap();
+	            	for(Map.Entry<Integer, Communication> entry : communicationMap.entrySet()){
+	            		Integer taskId = entry.getKey();
+	            		Communication taskCommunication = entry.getValue();
+	                    if(!taskCommunication.isFinished()){
+	                        continue;
+	                    }
+	                    TaskExecutor taskExecutor = removeTask(runTasks, taskId);
+	
+	                    //上面从runTasks里移除了，因此对应在monitor里移除
+	                    taskMonitor.removeTask(taskId);
+	
+	                    //失败，看task是否支持failover，重试次数未超过最大限制
+	            		if(taskCommunication.getState() == State.FAILED){
+	                        taskFailedExecutorMap.put(taskId, taskExecutor);
+	            			if(taskExecutor.supportFailOver() && taskExecutor.getAttemptCount() < taskMaxRetryTimes){
+	                            taskExecutor.shutdown(); //关闭老的executor
+	                            containerCommunicator.resetCommunication(taskId); //将task的状态重置
+	            				Configuration taskConfig = taskConfigMap.get(taskId);
+	            				taskQueue.add(taskConfig); //重新加入任务列表
+	            			}else{
+	            				failedOrKilled = true;
+	                			break;
+	            			}
+	            		}else if(taskCommunication.getState() == State.KILLED){
+	            			failedOrKilled = true;
+	            			break;
+	            		}else if(taskCommunication.getState() == State.SUCCEEDED){
+	                        Long taskStartTime = taskStartTimeMap.get(taskId);
+	                        if(taskStartTime != null){
+	                            Long usedTime = System.currentTimeMillis() - taskStartTime;
+	                            LOG.info("taskGroup[{}] taskId[{}] is successed, used[{}]s",
+	                                    this.taskGroupId, taskId, usedTime/1000);
+	                            //usedTime*1000*1000 转换成PerfRecord记录的ns，这里主要是简单登记，进行最长任务的打印。因此增加特定静态方法
+	                            PerfRecord.addPerfRecord(taskGroupId, taskId, PerfRecord.PHASE.TASK_TOTAL,taskStartTime, usedTime * 1000L * 1000L);
+	                            taskStartTimeMap.remove(taskId);
+	                            taskConfigMap.remove(taskId);
+	                        }
+	                    }
+	            	}
+	            	
+	                // 2.发现该taskGroup下taskExecutor的总状态失败则汇报错误
+	                if (failedOrKilled) {
+	                    lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
+	                            lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
+	                    Throwable ex = lastTaskGroupContainerCommunication.getThrowable();
+	                    DeltaJobTimestamp.notifyError(this.configuration, ex);
+	                    if(ex instanceof OutOfMemoryError){//by crabo
+	                    	LOG.info("taskGroup OutOfMemoryError occurred!!! job exit now.");
+	                    	System.exit(9);
+	                    }
+	                    
+	                    throw DataXException.asDataXException(
+	                            FrameworkErrorCode.PLUGIN_RUNTIME_ERROR, ex);
+	                }
+	                
+	                //3.有任务未执行，且正在运行的任务数小于最大通道限制
+	                Iterator<Configuration> iterator = taskQueue.iterator();
+	                while(iterator.hasNext() && runTasks.size() < channelNumber){
+	                    Configuration taskConfig = iterator.next();
+	                    Integer taskId = taskConfig.getInt(CoreConstant.TASK_ID);
+	                    int attemptCount = 1;
+	                    TaskExecutor lastExecutor = taskFailedExecutorMap.get(taskId);
+	                    if(lastExecutor!=null){
+	                        attemptCount = lastExecutor.getAttemptCount() + 1;
+	                        long now = System.currentTimeMillis();
+	                        long failedTime = lastExecutor.getTimeStamp();
+	                        if(now - failedTime < taskRetryIntervalInMsec){  //未到等待时间，继续留在队列
+	                            continue;
+	                        }
+	                        if(!lastExecutor.isShutdown()){ //上次失败的task仍未结束
+	                            if(now - failedTime > taskMaxWaitInMsec){
+	                                markCommunicationFailed(taskId);
+	                                reportTaskGroupCommunication(lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
+	                                throw DataXException.asDataXException(CommonErrorCode.WAIT_TIME_EXCEED, "task failover等待超时");
+	                            }else{
+	                                lastExecutor.shutdown(); //再次尝试关闭
+	                                continue;
+	                            }
+	                        }else{
+	                            LOG.info("taskGroup[{}] taskId[{}] attemptCount[{}] has already shutdown",
+	                                    this.taskGroupId, taskId, lastExecutor.getAttemptCount());
+	                        }
+	                    }
+	                    Configuration taskConfigForRun = taskMaxRetryTimes > 1 ? taskConfig.clone() : taskConfig;
+	                    
+	                    if(ts_interval>0)
+	                    	DeltaJobTimestamp.apply(this.configuration,taskConfigForRun);//by crabo ts_start：从外部文件读取时间戳
+	                	TaskExecutor taskExecutor = new TaskExecutor(taskConfigForRun, attemptCount);
+	                    taskStartTimeMap.put(taskId, System.currentTimeMillis());
+	                	taskExecutor.doStart();
+	
+	                    iterator.remove();
+	                    runTasks.add(taskExecutor);
+	
+	                    //上面，增加task到runTasks列表，因此在monitor里注册。
+	                    taskMonitor.registerTask(taskId, this.containerCommunicator.getCommunication(taskId));
+	
+	                    taskFailedExecutorMap.remove(taskId);
+	                    LOG.debug("taskGroup[{}] taskId[{}] attemptCount[{}] is started",
+	                            this.taskGroupId, taskId, attemptCount);
+	                }
+	
+	                //4.任务列表为空，executor已结束, 搜集状态为success--->成功
+	                /*
+	                if (taskQueue.isEmpty() && isAllTaskDone(runTasks) && containerCommunicator.collectState() == State.SUCCEEDED) {
+	                	// 成功的情况下，也需要汇报一次。否则在任务结束非常快的情况下，采集的信息将会不准确
+	                    lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
+	                            lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
+	                    
+	                    LOG.debug("taskGroup[{}] completed it's tasks.", this.taskGroupId);
+	                    break;
+	                }*/
+	                if (taskQueue.isEmpty() && isAllTaskDone(runTasks) && containerCommunicator.collectState() == State.SUCCEEDED) {
+	                    if(ts_interval>0){
+		                    DeltaJobTimestamp.write(this.configuration);//by crabo ts_start:更新时间戳
+		                    break;//break to wait next 60s run
+	                    }
+	                    
+	                	// 成功的情况下，也需要汇报一次。否则在任务结束非常快的情况下，采集的信息将会不准确
+	                	lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
+	                            lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
+	                	
+	                    LOG.debug("taskGroup[{}] completed it's tasks.", this.taskGroupId);
+	                    break;
+	                }
+	
+	                // 5.如果当前时间已经超出汇报时间的interval，那么我们需要马上汇报
+	                long now = System.currentTimeMillis();
+	                if (now - lastReportTimeStamp > reportIntervalInMillSec) {
+	                    lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
+	                            lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
+	
+	                    lastReportTimeStamp = now;
+	
+	                    //taskMonitor对于正在运行的task，每reportIntervalInMillSec进行检查
+	                    for(TaskExecutor taskExecutor:runTasks){
+	                        taskMonitor.report(taskExecutor.getTaskId(),this.containerCommunicator.getCommunication(taskExecutor.getTaskId()));
+	                    }
+	
+	                }
+	
+	                Thread.sleep(sleepIntervalInMillSec);
+	            }//end while true
+	            
+	        	if(ts_interval>0){
+	        		lastTaskGroupContainerCommunication.reset();
+	            	LOG.info("taskGroup[{}] wait '{}' seconds for next run ...",this.taskGroupId,ts_interval);
+	            	Thread.sleep(ts_interval*1000);//根据预设值等待下次重复启动
+	            }else
+	            {
+	            	//6.最后还要汇报一次
+	            	reportTaskGroupCommunication(lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);	
+	            }
         	
-        	LOG.info("taskGroup[{}] wait '{}' seconds for next run ...",this.taskGroupId,ts_interval);
-        	Thread.sleep(ts_interval*1000);//根据预设值等待下次重复启动
             }while(ts_interval>0);
 
         } catch (Throwable e) {
@@ -411,7 +428,7 @@ public class TaskGroupContainer extends AbstractContainer {
             
             cfg.set("job.setting.ts_start", start);
     		cfg.set("job.setting.ts_end", getIntervalTime(start
-    					,cfg.getInt("job.setting.ts_batch_days",0)
+    					,cfg.getInt("job.setting.ts_batch_mins",0)
     					,cfg.getInt("job.setting.ts_adjustnow_sec",0)
     				));
     	}
@@ -422,6 +439,7 @@ public class TaskGroupContainer extends AbstractContainer {
     			sql=task.getString("reader.parameter.querySql");
     			if(sql==null) sql=initTask(task);//未被job.split()处理
     			
+    			sql = parepareBatchEndSql(cfg,sql);
     			task.set("reader.parameter.ts_querySql",sql);//first init!
     		}
     		if(sql!=null){
@@ -433,6 +451,20 @@ public class TaskGroupContainer extends AbstractContainer {
     		
     		//task.set("reader.parameter.ts_end", cfg.getString("job.setting.ts_end"));
     		//task.set("reader.parameter.ts_start", cfg.getString("job.setting.ts_start"));
+    	}
+    	static java.util.regex.Pattern REGEX_TS_START = java.util.regex.Pattern.compile("(\\w*\\.+\\w*)\\W*ts_start");
+    	static String parepareBatchEndSql(Configuration cfg,String sql){
+    		if(cfg.getInt("job.setting.ts_batch_mins",0)>0 //不存在ts_end???
+    				&& sql.indexOf("$ts_end")<0 && sql.indexOf("$ts_start")>0){
+    			
+    			Matcher m = REGEX_TS_START.matcher(sql);
+    			if(m.find()){
+    				String criteria = " and "+m.group(1)+" <= '$ts_end' ";
+    				LOG.warn("====> prepare $ts_end sql ===>"+criteria);
+    				sql=sql+criteria;
+    			}
+    		}
+    		return sql;
     	}
     	static String initTask(Configuration task){
     		String sql=task.getString("writer.parameter.connection[0].table[0]");
@@ -495,11 +527,11 @@ public class TaskGroupContainer extends AbstractContainer {
     		}
     	}
     	static SimpleDateFormat TS_FORMAT=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-    	static String getIntervalTime(String start,int days,int adjust_sec){
+    	static String getIntervalTime(String start,int mins,int adjust_sec){
     		Calendar calc = Calendar.getInstance();
     		
     		Date now=new Date();
-    		if(days<=0){//未设置间隔， 返回Now
+    		if(mins<=0){//未设置间隔， 返回Now
     			calc.setTime(now);
     			calc.add(Calendar.SECOND, adjust_sec);
     		}else//返回start后的n个小时
@@ -514,7 +546,7 @@ public class TaskGroupContainer extends AbstractContainer {
 						e1.printStackTrace();
 					}
 				}
-    			calc.add(Calendar.DATE, days);
+    			calc.add(Calendar.MINUTE, mins);
     			
     			if(calc.getTime().getTime()>now.getTime()){//超过now()， 重置为now()
     				calc.setTime(now);
