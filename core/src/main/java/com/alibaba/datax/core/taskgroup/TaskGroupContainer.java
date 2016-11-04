@@ -274,6 +274,12 @@ public class TaskGroupContainer extends AbstractContainer {
 	                if (taskQueue.isEmpty() && isAllTaskDone(runTasks) && containerCommunicator.collectState() == State.SUCCEEDED) {
 	                    if(ts_interval>0){
 		                    DeltaJobTimestamp.write(this.configuration);//by crabo ts_start:更新时间戳
+		                    for(TaskExecutor taskExecutor:runTasks){
+		                        taskMonitor.report(taskExecutor.getTaskId(),this.containerCommunicator.getCommunication(taskExecutor.getTaskId()));
+		                    }
+		                    
+		                    for(Communication c : containerCommunicator.getCommunicationMap().values())
+		                		c.setState(State.RUNNING,true);
 		                    break;//break to wait next 60s run
 	                    }
 	                    
@@ -302,17 +308,9 @@ public class TaskGroupContainer extends AbstractContainer {
 	
 	                Thread.sleep(sleepIntervalInMillSec);
 	            }//end while true
-	            
-	        	if(ts_interval>0){
-	        		lastTaskGroupContainerCommunication.reset();
-	            	LOG.info("taskGroup[{}] wait '{}' seconds for next run ...",this.taskGroupId,ts_interval);
-	            	Thread.sleep(ts_interval*1000);//根据预设值等待下次重复启动
-	            }else
-	            {
-	            	//6.最后还要汇报一次
-	            	reportTaskGroupCommunication(lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);	
-	            }
-        	
+	        	
+            	//6.最后还要汇报一次
+            	reportTaskGroupCommunication(lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
             }while(ts_interval>0);
 
         } catch (Throwable e) {
@@ -403,7 +401,7 @@ public class TaskGroupContainer extends AbstractContainer {
     		FileWriter fw=null;
 			try {
 				fw = new FileWriter(f);
-				fw.append(getIntervalTime(null,0,0));
+				fw.append(getIntervalTime(null,0,0,0));
 				fw.append(" - \t");
 				fw.append(ex==null?"no exception.":ex.toString());
 			} catch (IOException e) {
@@ -424,12 +422,13 @@ public class TaskGroupContainer extends AbstractContainer {
     		
     		String start=fromFile(file);
             if(start==null || start.length()==0)//文件读取异常？从上次job中读取
-                start = cfg.getString("job.setting.ts_end",getIntervalTime(null,0,cfg.getInt("job.setting.ts_adjustnow_sec",0)));
+                start = cfg.getString("job.setting.ts_end",getIntervalTime(null,0,cfg.getInt("job.setting.ts_adjustnow_sec",0),0));
             
             cfg.set("job.setting.ts_start", start);
     		cfg.set("job.setting.ts_end", getIntervalTime(start
     					,cfg.getInt("job.setting.ts_batch_mins",0)
     					,cfg.getInt("job.setting.ts_adjustnow_sec",0)
+    					,cfg.getInt("job.setting.ts_interval_sec",0)
     				));
     	}
     	public static void apply(Configuration cfg,Configuration task){
@@ -460,7 +459,7 @@ public class TaskGroupContainer extends AbstractContainer {
     			Matcher m = REGEX_TS_START.matcher(sql);
     			if(m.find()){
     				String criteria = " and "+m.group(1)+" <= '$ts_end' ";
-    				LOG.warn("====> prepare $ts_end sql ===>"+criteria);
+    				LOG.debug("====> prepare $ts_end sql ===>"+criteria);
     				sql=sql+criteria;
     			}
     		}
@@ -484,6 +483,8 @@ public class TaskGroupContainer extends AbstractContainer {
     		String file = cfg.getString("job.setting.ts_file","job.ts.txt");
     		
     		toFile(file,cfg.getString("job.setting.ts_end"));
+
+            LOG.info(">>>  $ts_start = {} <<<",cfg.getString("job.setting.ts_end"));
     	}
        static String fromFile(String path){
     		BufferedReader br =null;
@@ -527,7 +528,7 @@ public class TaskGroupContainer extends AbstractContainer {
     		}
     	}
     	static SimpleDateFormat TS_FORMAT=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-    	static String getIntervalTime(String start,int mins,int adjust_sec){
+    	static String getIntervalTime(String start,int mins,int adjust_sec,int sleepSecs){
     		Calendar calc = Calendar.getInstance();
     		
     		Date now=new Date();
@@ -549,6 +550,17 @@ public class TaskGroupContainer extends AbstractContainer {
     			calc.add(Calendar.MINUTE, mins);
     			
     			if(calc.getTime().getTime()>now.getTime()){//超过now()， 重置为now()
+    				if(sleepSecs>0)
+    				{
+    					LOG.info("taskGroup wait '{}' seconds for next run ...",sleepSecs);
+    	            	
+						try {
+							Thread.sleep(sleepSecs*1000);
+						} catch (InterruptedException e) {
+							e.printStackTrace();
+						}
+						now=new Date();
+    				}
     				calc.setTime(now);
         			calc.add(Calendar.SECOND, adjust_sec);
     			}	
