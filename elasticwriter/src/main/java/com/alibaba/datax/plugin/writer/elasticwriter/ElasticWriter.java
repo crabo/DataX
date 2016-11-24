@@ -245,7 +245,7 @@ public class ElasticWriter extends Writer {
     	        	retires=100;//SUCCESS, BREAK NOW!!!!
     	        	
     	        	if(failInBulk(resp)){
-    	        		//throw new IllegalArgumentException("_bulk post failed");
+    	        		//throw new IllegalArgumentException("error occur on es ingrest,please check elasticsearch log for details!");
     	        	}
     	        }
         		catch(RuntimeException e){
@@ -306,9 +306,13 @@ public class ElasticWriter extends Writer {
         	if(resp.getStatusLine().getStatusCode()>HTTP_STATUS_OK
         			|| result.indexOf("\"errors\":true")>0)
         	{
+        		LOG.info(result);//for data recovery
+        		
         		int i = result.indexOf("\"error\":");
         		result = result.substring(i, result.indexOf('}',i));
         		
+        		//should stop the job???
+        		//throw new IllegalArgumentException("error occur on es ingrest,please check elasticsearch log for details!");
         		LOG.warn("ElasticSearch '_bulk' post failed, first error=\r\n{}",result);
         		return true;
         	}

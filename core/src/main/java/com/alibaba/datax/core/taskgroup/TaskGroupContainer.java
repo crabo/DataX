@@ -43,6 +43,10 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 public class TaskGroupContainer extends AbstractContainer {
     private static final Logger LOG = LoggerFactory
@@ -396,31 +400,16 @@ public class TaskGroupContainer extends AbstractContainer {
                 .getLogger(DeltaJobTimestamp.class);
     	
     	public static void notifyError(Configuration cfg,Throwable ex){
-    		String file = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
-    		File f = new File(file+".error");
-    		FileWriter fw=null;
-			try {
-				fw = new FileWriter(f);
-				fw.append(getIntervalTime(null,0,0,0));
-				fw.append(" - \t");
-				fw.append(ex==null?"no exception.":ex.toString());
-			} catch (IOException e) {
-				e.printStackTrace();
-			}finally{
-				if(fw!=null)
-					try {
-						fw.close();
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-			}
-    		
+    		String path = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
+    		SqlStateTracer.onError(path, ex);
     	}
     	
-    	public static void read(Configuration cfg){
+    	public static void read(Configuration cfg) throws ClassNotFoundException{
+    		SqlStateTracer.init(cfg);//needed only in sqlState
+    		
     		String file = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
     		
-    		String start=fromFile(file);
+    		String start=SqlStateTracer.read(file);
             if(start==null || start.length()==0)//文件读取异常？从上次job中读取
                 start = cfg.getString("job.setting.ts_end",getIntervalTime(null,0,cfg.getInt("job.setting.ts_adjustnow_sec",0),0));
             
@@ -481,52 +470,11 @@ public class TaskGroupContainer extends AbstractContainer {
     	}
     	public static void write(Configuration cfg){
     		String file = cfg.getString("job.setting.ts_file","job.ts.txt");
-    		
-    		toFile(file,cfg.getString("job.setting.ts_end"));
+    		SqlStateTracer.write(file,cfg.getString("job.setting.ts_end"));
 
             LOG.info(">>>  $ts_start = {} <<<",cfg.getString("job.setting.ts_end"));
     	}
-       static String fromFile(String path){
-    		BufferedReader br =null;
-    		try{
-    			File f = new File(path);
-    			if(f.exists())
-    			{
-	    			br = new BufferedReader(new FileReader(f));
-	    			return br.readLine();
-    			}else
-    			{
-    				LOG.warn("failed to load ts_file '{}' !",f.getAbsolutePath());
-    			}
-    		} catch (Exception e) {
-				e.printStackTrace();
-    		}finally{
-    			if(br!=null)
-					try {
-						br.close();
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-    		}
-    		return null;
-    	}
-    	static void toFile(String path,String val){
-    		BufferedWriter bw=null;
-    		try {
-    			bw = new BufferedWriter(new FileWriter(path));
-				bw.write(val);
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-    		finally{
-    			if(bw!=null)
-					try {
-						bw.close();
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-    		}
-    	}
+    	
     	static SimpleDateFormat TS_FORMAT=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     	static String getIntervalTime(String start,int mins,int adjust_sec,int sleepSecs){
     		Calendar calc = Calendar.getInstance();
@@ -568,7 +516,158 @@ public class TaskGroupContainer extends AbstractContainer {
     		
     		return TS_FORMAT.format(calc.getTime());
     	}
+    	
+
+        static class TxtStateTracer{
+        	static String read(String path){
+        		BufferedReader br =null;
+        		try{
+        			File f = new File(path);
+        			if(f.exists())
+        			{
+    	    			br = new BufferedReader(new FileReader(f));
+    	    			return br.readLine();
+        			}else
+        			{
+        				LOG.warn("failed to load ts_file '{}' !",f.getAbsolutePath());
+        			}
+        		} catch (Exception e) {
+    				e.printStackTrace();
+        		}finally{
+        			if(br!=null)
+    					try {
+    						br.close();
+    					} catch (IOException e) {
+    						e.printStackTrace();
+    					}
+        		}
+        		return null;
+        	}
+        	
+        	static void write(String path,String val){
+        		BufferedWriter bw=null;
+        		try {
+        			bw = new BufferedWriter(new FileWriter(path));
+    				bw.write(val);
+    			} catch (IOException e) {
+    				e.printStackTrace();
+    			}
+        		finally{
+        			if(bw!=null)
+    					try {
+    						bw.close();
+    					} catch (IOException e) {
+    						e.printStackTrace();
+    					}
+        		}
+        	}
+        	
+        	static void onError(String path,Throwable ex){
+        		File f = new File(path+".error");
+        		FileWriter fw=null;
+    			try {
+    				fw = new FileWriter(f);
+    				fw.append(new Date().toString());
+    				fw.append(" - \t");
+    				fw.append(ex==null?"no exception.":ex.toString());
+    			} catch (IOException e) {
+    				e.printStackTrace();
+    			}finally{
+    				if(fw!=null)
+    					try {
+    						fw.close();
+    					} catch (IOException e) {
+    						e.printStackTrace();
+    					}
+    			}
+        	}
+        }
+        static class SqlStateTracer{
+        	static String querySql=null;
+        	static String updateSql;
+        	static String errorSql;
+        	
+        	static String jdbcUrl;
+        	static String uid;
+        	static String pwd;
+        	static void init(Configuration cfg) throws ClassNotFoundException{
+        		if(querySql==null){
+        			String driver=cfg.getString("job.setting."+"ts_jdbc_driver","com.mysql.jdbc.Driver");
+					Class.forName(driver);
+        			
+        			jdbcUrl=cfg.getString("job.setting."+"ts_jdbc_url");
+        			LOG.info("======jdbc state setting loaded===== url:{}",jdbcUrl);
+        			uid=cfg.getString("job.setting."+"ts_jdbc_uid");
+        			pwd=cfg.getString("job.setting."+"ts_jdbc_pwd");
+        			
+        			querySql=cfg.getString("job.setting." +"ts_jdbc_select");
+        			updateSql=cfg.getString("job.setting."+"ts_jdbc_update");
+        			errorSql=cfg.getString("job.setting."+"ts_jdbc_error");
+        		}
+        	}
+        	private static Connection getConn() throws SQLException{
+				return DriverManager.getConnection(jdbcUrl, uid, pwd);
+        	}
+        	static String read(String keyText){
+        		Connection conn=null;
+        		try {
+					conn = getConn();
+					ResultSet rs =conn.createStatement().executeQuery(querySql.replace("$ts_key", keyText));
+					if(rs.next())
+						return rs.getString(1);
+				} catch (SQLException e) {
+					LOG.warn("read sql state error:{}",e);
+				}finally{
+					if(conn!=null)
+						try {
+							conn.close();
+						} catch (Exception e) {
+							LOG.warn("close conn error on read state:{}",e);
+						}
+				}
+        		return null;
+        	}
+        	static void write(String keyText,String newVal){
+        		Connection conn=null;
+        		try {
+					conn = getConn();
+					int rs =conn.createStatement().executeUpdate(updateSql
+							.replace("$ts_key", keyText)
+							.replace("$ts_value", newVal));
+				} catch (SQLException e) {
+					LOG.warn("write sql state error:{}",e);
+				}finally{
+					if(conn!=null)
+						try {
+							conn.close();
+						} catch (Exception e) {
+							LOG.warn("close conn error on read state:{}",e);
+						}
+				}
+        	}
+        	static void onError(String keyText,Throwable ex){
+        		Connection conn=null;
+        		try {
+					conn = getConn();
+					int rs =conn.createStatement().executeUpdate(errorSql
+							.replace("$ts_key", keyText)
+							.replace("$ts_error", 
+									(new Date().toString())+ex.getMessage()
+									));
+				} catch (SQLException e) {
+					LOG.warn("update sql state error:{}",e);
+				}finally{
+					if(conn!=null)
+						try {
+							conn.close();
+						} catch (Exception e) {
+							LOG.warn("close conn error on read state:{}",e);
+						}
+				}
+        	}
+        }
     }
+    
 
     /**
      * TaskExecutor是一个完整task的执行器
