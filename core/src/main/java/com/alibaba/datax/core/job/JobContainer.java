@@ -415,15 +415,17 @@ public class JobContainer extends AbstractContainer {
 		        List<Configuration> writerTaskConfigs = this
 		                .doWriterSplit(taskNumber);
 		
-		        List<Configuration> transformerList = this.configuration.getListConfiguration(CoreConstant.DATAX_JOB_CONTENT_TRANSFORMER
-		        		.replace("[0]", "["+i+"]"));
-		
+		        List<Configuration> transformerList = this.configuration.getListConfiguration(CoreConstant.DATAX_JOB_CONTENT_TRANSFORMER);
 		        
-		        List<Configuration> contentConfig = mergeReaderAndWriterTaskConfigs(
-		                readerTaskConfigs, writerTaskConfigs, transformerList,
-		                allSliceConfigs.size());//累计task的id
-		        //合并每一次content split的结果
-		        allSliceConfigs.addAll(contentConfig);
+		        if(readerTaskConfigs.get(0).getString(//added by crabo:未替换jdbc user变量的作业直接忽略
+		        		"username","").indexOf("$")<0){
+		        	
+			        List<Configuration> contentConfig = mergeReaderAndWriterTaskConfigs(
+			                readerTaskConfigs, writerTaskConfigs, transformerList,
+			                allSliceConfigs.size());//累计task的id
+			        //合并每一次content split的结果
+			        allSliceConfigs.addAll(contentConfig);
+		        }
 	
 	        }
 	        LOG.debug("contentConfig configuration: "+ JSON.toJSONString(allSliceConfigs));
