@@ -46,13 +46,12 @@ public class ElasticArrayWriter extends Writer {
         private static final Logger LOG = LoggerFactory
                 .getLogger(Task.class);
         private int ID_FIELD=0;
-        private boolean isCanRead=true;//当read()返回null时，再次read()将阻塞进程。
+        protected boolean isCanRead=true;//当read()返回null时，再次read()将阻塞进程。
         
         @Override
         public void startWrite(RecordReceiver recordReceiver) {
         	if(super.parseArray){
-        		RestClient client = RestClient.builder(super.hosts)
-                		.build();
+        		RestClient client = super.newClient(this.hostList.get(0));
         		
         		this.isCanRead=true;
         		startWriteWithConn(recordReceiver,client);
@@ -62,7 +61,7 @@ public class ElasticArrayWriter extends Writer {
         	}
         }
         
-        private void startWriteWithConn(RecordReceiver recordReceiver,RestClient conn){
+        protected void startWriteWithConn(RecordReceiver recordReceiver,RestClient conn){
         	List<Record> writeBuffer = new ArrayList<Record>(this.batchSize+30);//合并末尾的同一分组
     		int bufferBytes = 0;
             try {
@@ -73,7 +72,7 @@ public class ElasticArrayWriter extends Writer {
 
                     if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
                     	record = trySplitGroupById(recordReceiver,writeBuffer);
-                    	doBulkInsert(conn, writeBuffer);
+                    	doBulkInsert(conn,this.index, writeBuffer);
                         super.afterBulk(writeBuffer);
                         bufferBytes = 0;
                         
@@ -86,7 +85,7 @@ public class ElasticArrayWriter extends Writer {
                     }
                 }
                 if (!writeBuffer.isEmpty()) {
-                	doBulkInsert(conn, writeBuffer);
+                	doBulkInsert(conn,this.index, writeBuffer);
                     super.afterBulk(writeBuffer);
                     bufferBytes = 0;
                 }
@@ -106,26 +105,30 @@ public class ElasticArrayWriter extends Writer {
             }
         }
         
-        private void doBulkInsert(RestClient conn,List<Record> records) throws IOException{
+        protected void doBulkInsert(RestClient conn,String idx,List<Record> records) throws IOException{
+        	
+        	super.postRequest(conn,idx,records);
+        }
+        protected StringBuilder recordToDoc(String idx,List<Record> records){
         	StringBuilder sb = new StringBuilder();
         	
         	Record[] array = records.toArray(new Record[0]);
         	Map<String,List<Record>> groups = splitArrayToGroup(array);
-        	for(Record r : array)
+        	for(Record r : array)//不存在分组,直接构建为doc
         	{
         		if(r!=null)
-        			super.appendBulk(sb,r,getNestedDoc(r));
+        			super.appendBulk(sb,idx,r,getNestedDoc(r));
         	}
         		
-        	appendArrayProp(sb,groups);
-        	super.postRequest(conn,sb);
+        	appendArrayProp(sb,idx,groups);//每个分组合并到一个doc
+        	return sb;
         }
         
         /**
-         * 是否reader正常
-         * @return 不属于同组的第一条记录
+         * 判断是否仍然后后续”同一分组“数据在reader中， 并继续追加如buffer
+         * @return 不属于同组的记录，但已经被取出
          */
-        Record trySplitGroupById(RecordReceiver recordReceiver,List<Record> writeBuffer){
+        protected Record trySplitGroupById(RecordReceiver recordReceiver,List<Record> writeBuffer){
         	if(!writeBuffer.isEmpty())
         	{
         		Record prev = writeBuffer.get(writeBuffer.size()-1);
@@ -146,7 +149,7 @@ public class ElasticArrayWriter extends Writer {
        
         
         final String ARRAY_SPLITTER="[";
-        void appendArrayProp(StringBuilder sb,Map<String,List<Record>> groups)
+        private void appendArrayProp(StringBuilder sb,String idx,Map<String,List<Record>> groups)
         {
         	for(Entry<String, List<Record>> group : groups.entrySet())
         	{
@@ -154,11 +157,11 @@ public class ElasticArrayWriter extends Writer {
         		Map<String,Object> root = getNestedDoc(r);
         		appendArrayPropsOnly(root,group.getValue());
         		
-        		super.appendBulk(sb,r,root);
+        		super.appendBulk(sb,idx,r,root);
         	}
         }
         
-        Map<String,Object> getNestedDoc(Record r){
+        private Map<String,Object> getNestedDoc(Record r){
         	Map<String,Object> root = new HashMap<String,Object>();
         	
         	for(int i=0;i<this.columnNumber;i++){
@@ -177,7 +180,7 @@ public class ElasticArrayWriter extends Writer {
         /**
          * 合并第一条之后的所有数组到当前root
          */
-        void appendArrayPropsOnly(Map<String,Object> root, List<Record> records){
+        private void appendArrayPropsOnly(Map<String,Object> root, List<Record> records){
         	for(int k=1;k<records.size();k++)//跳过第一条
         	{
         		Record r = records.get(k);
@@ -193,7 +196,7 @@ public class ElasticArrayWriter extends Writer {
         /**
          * 对数组的属性使用单独的赋值方式
          */
-        void appendNestedArrayProp(Map<String,Object> root,String props,Column val){
+        private void appendNestedArrayProp(Map<String,Object> root,String props,Column val){
         	if(props.indexOf(NESTED_SPLITTER)>0){
 	        	String[] nested = StringUtils.split(props, NESTED_SPLITTER, 2);//第一个分隔符
 	    		Map<String,Object> child = (Map<String,Object>)root.get(nested[0]);
@@ -230,7 +233,7 @@ public class ElasticArrayWriter extends Writer {
          * @param records 不存在分组的记录
          * @return 存在分组的记录
          */
-        Map<String,List<Record>> splitArrayToGroup(Record[] records){
+        private Map<String,List<Record>> splitArrayToGroup(Record[] records){
         	Map<String,List<Record>> groups = new HashMap<String,List<Record>>();
         	if(records.length>1){
 	        	String prevId=records[0].getColumn(ID_FIELD).asString();

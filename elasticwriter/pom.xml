@@ -14,8 +14,9 @@
 		<dependency>
 		    <groupId>org.elasticsearch.client</groupId>
 		    <artifactId>rest</artifactId>
-		    <version>5.0.0-alpha5</version>
+		    <version>5.0.1</version>
 		</dependency>
+        
 		<dependency>
 		    <groupId>org.apache.httpcomponents</groupId>
 		    <artifactId>httpclient</artifactId>
@@ -25,6 +26,11 @@
             <groupId>com.alibaba</groupId>
             <artifactId>fastjson</artifactId>
         </dependency>
+        <dependency>
+	        <groupId>mysql</groupId>
+	        <artifactId>mysql-connector-java</artifactId>
+	        <version>5.1.38</version>
+	    </dependency>
 		
 		<dependency>
 			<groupId>com.alibaba.datax</groupId>
@@ -61,6 +67,12 @@
 			<scope>system</scope>
             <systemPath>${project.basedir}/../plugin-rdbms-util/target/plugin-rdbms-util-0.0.1-SNAPSHOT.jar</systemPath>
 		</dependency>
+		
+		<dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
 	</dependencies>
 
 	<build>
@@ -69,8 +81,8 @@
 			<plugin>
 				<artifactId>maven-compiler-plugin</artifactId>
 				<configuration>
-					<source>1.6</source>
-					<target>1.6</target>
+					<source>1.7</source>
+					<target>1.7</target>
 					<encoding>${project-sourceEncoding}</encoding>
 				</configuration>
 			</plugin>

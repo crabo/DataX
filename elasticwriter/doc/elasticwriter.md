@@ -44,6 +44,14 @@ writeMode=update时
             "ts_batch_mins":30, //不设置，则ts_end=now(), 设置时： ts_end=ts_start+mins； 若sql未配置$ts_end 会自动regex匹配$start 末尾追加 and {time_column}<='$ts_end' 
             "ts_interval_sec":15, //设置则启用task无限循环执行模式，必须配合delta增量配置
             "ts_file":"verticajob.ts.txt", //启用delta增量配置使用的持久时间戳:任务启动时间
+            
+           "ts_jdbc_url":"jdbc:mysql://localhost/job_center",
+			"ts_jdbc_uid":"..",
+			"ts_jdbc_pwd":"...",
+			"ts_jdbc_select":"select task_time from job_status_trace_log where job_name='$ts_key'",
+			"ts_jdbc_update":"update job_status_trace_log set task_time='$ts_value' where job_name='$ts_key'",
+			"ts_jdbc_error":"update job_status_trace_log set task_message='$ts_error' where job_name='$ts_key'",
+			
             "speed": {
                 "channel":1   //逐个作业排队执行
             },
@@ -68,7 +76,9 @@ writeMode=update时
                 "name": "elasticwriter",
                 "parameter": {
         			"batchSize":1000,
+        			"parseArray":true,    //order[name],order[payment]
 					"writeMode": "index", //替换整条记录。 update则部分更新到记录（或新增）
+					"index_auth":"elastic:esPassword",  //es访问的用户名密码
 					"index":"crm-%%",    //%%会替换为对应的分库值：1603
 					"document":"customer",
 					"date_field":2,      //用于分库的字段在column中的位置

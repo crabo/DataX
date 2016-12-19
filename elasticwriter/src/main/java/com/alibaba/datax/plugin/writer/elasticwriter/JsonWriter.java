@@ -105,7 +105,7 @@ public class JsonWriter extends Writer {
 
                     if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
                     	record = trySplitGroupById(recordReceiver,writeBuffer);
-                    	doBulkInsert(conn, writeBuffer);
+                    	doBulkInsert(conn,this.index, writeBuffer);
                         super.afterBulk(writeBuffer);
                         bufferBytes = 0;
                         
@@ -118,7 +118,7 @@ public class JsonWriter extends Writer {
                     }
                 }
                 if (!writeBuffer.isEmpty()) {
-                	doBulkInsert(conn, writeBuffer);
+                	doBulkInsert(conn,this.index, writeBuffer);
                     super.afterBulk(writeBuffer);
                     bufferBytes = 0;
                 }
@@ -138,7 +138,7 @@ public class JsonWriter extends Writer {
             }
         }
         
-        private void doBulkInsert(BufferedOutputStream conn,List<Record> records) throws IOException{
+        private void doBulkInsert(BufferedOutputStream conn,String idx,List<Record> records) throws IOException{
         	StringBuilder sb = new StringBuilder();
         	
         	Record[] array = records.toArray(new Record[0]);
@@ -146,10 +146,10 @@ public class JsonWriter extends Writer {
         	for(Record r : array)
         	{
         		if(r!=null)
-        			super.appendBulk(sb,r,getNestedDoc(r));
+        			super.appendBulk(sb,idx,r,getNestedDoc(r));
         	}
         		
-        	appendArrayProp(sb,groups);
+        	appendArrayProp(sb,idx,groups);
         	conn.write(sb.toString().getBytes("utf-8"));
         }
         
@@ -178,7 +178,7 @@ public class JsonWriter extends Writer {
        
         
         final String ARRAY_SPLITTER="[";
-        void appendArrayProp(StringBuilder sb,Map<String,List<Record>> groups)
+        void appendArrayProp(StringBuilder sb,String idx,Map<String,List<Record>> groups)
         {
         	for(Entry<String, List<Record>> group : groups.entrySet())
         	{
@@ -186,7 +186,7 @@ public class JsonWriter extends Writer {
         		Map<String,Object> root = getNestedDoc(r);
         		appendArrayPropsOnly(root,group.getValue());
         		
-        		super.appendBulk(sb,r,root);
+        		super.appendBulk(sb,idx,r,root);
         	}
         }
         
