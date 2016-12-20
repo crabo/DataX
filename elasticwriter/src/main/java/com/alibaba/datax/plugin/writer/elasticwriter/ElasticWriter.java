@@ -3,9 +3,9 @@ package com.alibaba.datax.plugin.writer.elasticwriter;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -15,13 +15,18 @@ import java.util.concurrent.TimeoutException;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.DateFormatUtils;
-import org.apache.http.Header;
 import org.apache.http.HttpEntity;
+import org.apache.http.HttpHeaders;
 import org.apache.http.HttpHost;
 import org.apache.http.ParseException;
 import org.apache.http.entity.ContentType;
+import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
+import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
+import org.apache.http.impl.nio.reactor.IOReactorConfig;
 import org.apache.http.message.BasicHeader;
 import org.apache.http.nio.entity.NStringEntity;
+import org.apache.http.nio.reactor.ConnectingIOReactor;
+import org.apache.http.nio.reactor.IOReactorException;
 import org.apache.http.util.EntityUtils;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.RestClient;
@@ -35,9 +40,6 @@ import com.alibaba.datax.common.exception.DataXException;
 import com.alibaba.datax.common.plugin.RecordReceiver;
 import com.alibaba.datax.common.spi.Writer;
 import com.alibaba.datax.common.util.Configuration;
-import com.alibaba.datax.plugin.rdbms.util.DBUtilErrorCode;
-import com.alibaba.datax.plugin.rdbms.writer.Constant;
-import com.alibaba.datax.plugin.rdbms.writer.Key;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
@@ -56,17 +58,17 @@ public class ElasticWriter extends Writer {
             List<String> hosts = this.originalConfig.getList(EsKey.HOST, String.class);
             if(hosts==null || hosts.isEmpty())
             throw DataXException.asDataXException(
-                    DBUtilErrorCode.ILLEGAL_VALUE, "host is required as ['localhost:9200','...']\n"
+            		EsErrorCode.ERROR, "host is required as ['localhost:9200','...']\n"
                     		+this.originalConfig.beautify());
             
             if(StringUtils.isBlank(this.originalConfig.getString(EsKey.INDEX))){
             	 throw DataXException.asDataXException(
-                         DBUtilErrorCode.ILLEGAL_VALUE, "Es 'index' name is require.\n"
+            			 EsErrorCode.ERROR, "Es 'index' name is require.\n"
                         		 +this.originalConfig.beautify());
             }
             if(StringUtils.isBlank(this.originalConfig.getString(EsKey.DOCUMENT))){
             	 throw DataXException.asDataXException(
-                         DBUtilErrorCode.ILLEGAL_VALUE, "Es 'document' type is require.\n"
+            			 EsErrorCode.ERROR, "Es 'document' type is require.\n"
                         		 +this.originalConfig.beautify());
             }
         }
@@ -152,10 +154,10 @@ public class ElasticWriter extends Writer {
             this.MONTH_PER_SHARD = this.writerSliceConfig.getInt(EsKey.MONTH_PER_SHARD,3);
             
             
-            this.batchSize = writerSliceConfig.getInt(Key.BATCH_SIZE, Constant.DEFAULT_BATCH_SIZE);
-            this.batchByteSize = writerSliceConfig.getInt(Key.BATCH_BYTE_SIZE, Constant.DEFAULT_BATCH_BYTE_SIZE);
-            this.writeMode = writerSliceConfig.getString(Key.WRITE_MODE, "update");//index 或  update
-            this.columns = writerSliceConfig.getList(Key.COLUMN, String.class);
+            this.batchSize = writerSliceConfig.getInt("batchSize", 2048);
+            this.batchByteSize = writerSliceConfig.getInt("batchByteSize", 0x2000000);
+            this.writeMode = writerSliceConfig.getString("writeMode", "update");//index 或  update
+            this.columns = writerSliceConfig.getList("column", String.class);
             this.parseArray= writerSliceConfig.getBool("parseArray", false);
             this.columnNumber = this.columns.size();
             
@@ -165,17 +167,16 @@ public class ElasticWriter extends Writer {
         @Override
         public void prepare() {
         }
-        
+
         RestClient newClient(String host){
         	if(!ClientHolder.containsKey(host))
         	{
         		synchronized (ClientHolder){
 	        		ClientHolder.put(host, 
 	    				RestClient.builder(new HttpHost[]{HttpHost.create(host)})
-	    				.setMaxRetryTimeoutMillis(30000)
-	            			//.setHttpClientConfigCallback(b -> b.setDefaultHeaders(
-	            	        //        Collections.singleton(new BasicHeader(HttpHeaders.ACCEPT_ENCODING, "gzip"))))
-	        	            //.setRequestConfigCallback(b -> b.setContentCompressionEnabled(true))
+	            			.setHttpClientConfigCallback(b -> b.setDefaultHeaders(
+	            	                Collections.singleton(new BasicHeader(HttpHeaders.ACCEPT_ENCODING, "gzip"))))
+	        	            .setRequestConfigCallback(b -> b.setContentCompressionEnabled(true))
 	            		.build()
 	        				);
         		}
@@ -211,7 +212,7 @@ public class ElasticWriter extends Writer {
                 }
             } catch (Exception e) {
                 throw DataXException.asDataXException(
-                        DBUtilErrorCode.WRITE_DATA_ERROR, e);
+                		EsErrorCode.ERROR, e);
             } finally {
                 writeBuffer.clear();
                 bufferBytes = 0;
@@ -251,29 +252,34 @@ public class ElasticWriter extends Writer {
 	        	HttpEntity entity = getPostEntity(idx,records,fails);
 	        	try{
 	        		fails = doPost(conn,entity);
+	        		if(fails==null || fails.isEmpty())
+	        			retries=20;//SUCESS
+	        		else{
+	        			LOG.info("ElasticSearch '_bulk' post failed, retrying with '{}' docs",fails.size());
+	        		}
 		        }catch(RuntimeException e){
 					if(e.getCause()!=null && e.getCause() instanceof TimeoutException){
 						try {
 							Thread.sleep(3000*retries);
 						} catch (InterruptedException e1) {
 						}
-						LOG.warn("ElasticSearch RestClient timeout-error on request, {}# {} retring",retries,idx);
+						LOG.warn("ElasticSearch timeout-error on request, {}# {} retring '{}' docs",retries,idx,records.size());
 					}else
 						throw e;
 				}catch(IOException ex){
 		    		try {
             			if(retries>10){//NETWORK ERROR?
-            				LOG.warn("ElasticSearch RestClient IO-error too many times, low down 'batchSize' setting please!");
+            				LOG.warn("ElasticSearch IO-error too many times, low down 'batchSize' setting please!");
             				Thread.sleep(1000*2^(retries-10));
             			}
     					Thread.sleep(3000*retries);
 	    				
 					} catch (InterruptedException e) {
 					}
-		    		LOG.warn("ElasticSearch RestClient IO-error on request, {}# {} retring \n {}",retries,idx,ex);
+		    		LOG.warn("ElasticSearch IO-error on request, {}# {} retring '{}' docs\n {}",retries,idx,records.size(),ex);
 		    	}
 	        	retries++;
-    		}while(fails!=null && retries<18);
+    		}while(retries<18);
         	
         	if(fails!=null){
         		LOG.error("========failed bulk docs=======\n{}",fails);
@@ -316,14 +322,14 @@ public class ElasticWriter extends Writer {
 		        		LOG.trace("ElasticSearch '_bulk' post failed, error docs: \n{}",
 		        				failedBatch
 		        				);
-        		}else{
-        			LOG.debug("ElasticSearch '_bulk' post failed, errors: \n{}",
-        					result
-	        				);
         		}
         		
         		//should stop the job???
         		//throw new IllegalArgumentException("error occur on es ingrest,please check elasticsearch log for details!");
+        		if(failedBatch==null || failedBatch.isEmpty())
+        			LOG.debug("ElasticSearch '_bulk' post failed, errors: \n{}",
+    					result
+        				);
         		
         		return failedBatch;
         	}

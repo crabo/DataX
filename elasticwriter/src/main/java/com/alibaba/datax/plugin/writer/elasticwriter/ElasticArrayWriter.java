@@ -2,40 +2,22 @@
 package com.alibaba.datax.plugin.writer.elasticwriter;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.time.DateFormatUtils;
+import org.elasticsearch.client.RestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.alibaba.datax.common.element.Column;
-import com.alibaba.datax.common.element.DateColumn;
 import com.alibaba.datax.common.element.Record;
 import com.alibaba.datax.common.exception.DataXException;
 import com.alibaba.datax.common.plugin.RecordReceiver;
 import com.alibaba.datax.common.spi.Writer;
-import com.alibaba.datax.common.util.Configuration;
-import com.alibaba.datax.plugin.rdbms.util.DBUtilErrorCode;
-import com.alibaba.datax.plugin.rdbms.writer.Constant;
-import com.alibaba.datax.plugin.rdbms.writer.Key;
-
-import org.elasticsearch.client.Response;
-import org.elasticsearch.client.RestClient;
-import org.apache.http.HttpHost;
-import org.apache.http.ParseException;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.util.EntityUtils;
-
-import com.alibaba.fastjson.JSON;
 
 public class ElasticArrayWriter extends Writer {
     public static class Job extends ElasticWriter.Job {
@@ -91,7 +73,7 @@ public class ElasticArrayWriter extends Writer {
                 }
             } catch (Exception e) {
                 throw DataXException.asDataXException(
-                        DBUtilErrorCode.WRITE_DATA_ERROR, e);
+                		EsErrorCode.ERROR, e);
             } finally {
                 writeBuffer.clear();
                 bufferBytes = 0;

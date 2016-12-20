@@ -4,7 +4,6 @@ package com.alibaba.datax.plugin.writer.elasticwriter;
 import java.io.BufferedOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -12,7 +11,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 import org.apache.commons.lang3.StringUtils;
-import org.elasticsearch.client.RestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,11 +20,6 @@ import com.alibaba.datax.common.exception.DataXException;
 import com.alibaba.datax.common.plugin.RecordReceiver;
 import com.alibaba.datax.common.spi.Writer;
 import com.alibaba.datax.common.util.Configuration;
-import com.alibaba.datax.plugin.rdbms.util.DBUtilErrorCode;
-import com.alibaba.datax.plugin.rdbms.writer.Constant;
-import com.alibaba.datax.plugin.rdbms.writer.Key;
-import com.alibaba.datax.plugin.writer.elasticwriter.ElasticArrayWriter.Task;
-import com.alibaba.fastjson.JSON;
 
 public class JsonWriter extends Writer {
     public static class Job extends ElasticWriter.Job {
@@ -124,7 +117,7 @@ public class JsonWriter extends Writer {
                 }
             } catch (Exception e) {
                 throw DataXException.asDataXException(
-                        DBUtilErrorCode.WRITE_DATA_ERROR, e);
+                		EsErrorCode.ERROR, e);
             } finally {
                 writeBuffer.clear();
                 bufferBytes = 0;
