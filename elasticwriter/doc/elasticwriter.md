@@ -29,6 +29,23 @@ writeMode=update时
 { "doc" : {"field2" : "value2"} , "doc_as_upsert" : true}
 
 
+binlog同步： 通过在每一行末尾加入 StringColumn(databaseName)，将多database的数据批量混合写入到RecordSender。
+var tmpBath=[];
+for(record : sender.Batchs){
+    if(record.[databaseName]==tmpBatch.database)
+        tmpBatch.add(record);  //合并批
+    else{
+        super.post(tmpBatch);  //分离为2批提交
+
+        tmpBatch.clear();
+        tmpBatch.add(record);
+    }
+}
+
+...
+if(!tmpBath.isEmpty())
+   super.post(tmpBatch);
+
 
 ## 3 功能说明
 
