@@ -135,8 +135,8 @@ public class TaskGroupContainer extends AbstractContainer {
             
             List<Configuration> taskConfigs = this.configuration
                     .getListConfiguration(CoreConstant.DATAX_JOB_CONTENT);
-            if(LOG.isDebugEnabled()) {
-                LOG.debug("taskGroup[{}]'s task configs[{}]", this.taskGroupId,
+            if(LOG.isTraceEnabled()) {
+                LOG.trace("taskGroup[{}]'s task configs[{}]", this.taskGroupId,
                         JSON.toJSONString(taskConfigs));
             }
             
@@ -158,7 +158,8 @@ public class TaskGroupContainer extends AbstractContainer {
 	            long lastReportTimeStamp = 0;
 	            Communication lastTaskGroupContainerCommunication = new Communication();
 	            
-	            DeltaJobTimestamp.read(this.configuration);//by crabo ts_start：从外部文件读取时间戳
+	            if(ts_interval>0)
+	            	DeltaJobTimestamp.read(this.configuration);//by crabo ts_start：从外部文件读取时间戳
 	            while (true) {
 	            	//1.判断task状态
 	            	boolean failedOrKilled = false;
@@ -208,7 +209,8 @@ public class TaskGroupContainer extends AbstractContainer {
 	                    lastTaskGroupContainerCommunication = reportTaskGroupCommunication(
 	                            lastTaskGroupContainerCommunication, taskCountInThisTaskGroup);
 	                    Throwable ex = lastTaskGroupContainerCommunication.getThrowable();
-	                    DeltaJobTimestamp.notifyError(this.configuration, ex);
+	                    if(ts_interval>0)
+	                    	DeltaJobTimestamp.notifyError(this.configuration, ex);
 	                    if(ex instanceof OutOfMemoryError){//by crabo
 	                    	LOG.info("taskGroup OutOfMemoryError occurred!!! job exit now.");
 	                    	System.exit(9);
@@ -407,9 +409,9 @@ public class TaskGroupContainer extends AbstractContainer {
     	public static void read(Configuration cfg) throws ClassNotFoundException{
     		SqlStateTracer.init(cfg);//needed only in sqlState
     		
-    		String file = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
+    		String tsKey = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
     		
-    		String start=SqlStateTracer.read(file);
+    		String start=SqlStateTracer.read(tsKey);
             if(start==null || start.length()==0)//文件读取异常？从上次job中读取
                 start = cfg.getString("job.setting.ts_end",getIntervalTime(null,0,cfg.getInt("job.setting.ts_adjustnow_sec",0),0));
             
@@ -449,7 +451,8 @@ public class TaskGroupContainer extends AbstractContainer {
     			if(m.find()){
     				String criteria = " and "+m.group(1)+" <= '$ts_end' ";
     				LOG.debug("====> prepare $ts_end sql ===>"+criteria);
-    				sql=sql+criteria;
+    				
+    				sql=sql.replace("'$ts_start'", "'$ts_start'"+criteria);
     			}
     		}
     		return sql;
@@ -487,8 +490,8 @@ public class TaskGroupContainer extends AbstractContainer {
     		{
     			try {
 					calc.setTime(TS_FORMAT.parse(start));
-				} catch (ParseException e) {
-					e.printStackTrace();
+				} catch (Exception e) {
+					LOG.warn("convert '{}' to TS_FORMAT error.{}",start,e);
 					try {
 						calc.setTime(new SimpleDateFormat().parse(start));
 					} catch (ParseException e1) {
@@ -498,7 +501,17 @@ public class TaskGroupContainer extends AbstractContainer {
     			calc.add(Calendar.MINUTE, mins);
     			
     			if(calc.getTime().getTime()>now.getTime()){//超过now()， 重置为now()
-    				if(sleepSecs>0)
+    				if(sleepSecs>86400)//all job done
+    				{
+    					DateFormat datefmt=new SimpleDateFormat("yyyy-MM-dd");
+    					try {
+    						Date date = datefmt.parse(datefmt.format(now));
+							if(TS_FORMAT.parse(start).after(date))//如果开始时间是当日，则停止作业
+								System.exit(0);
+						} catch (ParseException e) {
+							e.printStackTrace();
+						}
+    				}else if(sleepSecs>0)
     				{
     					LOG.info("taskGroup wait '{}' seconds for next run ...",sleepSecs);
     	            	
@@ -646,13 +659,17 @@ public class TaskGroupContainer extends AbstractContainer {
 				}
         	}
         	static void onError(String keyText,Throwable ex){
+        		if(errorSql==null) return;
         		Connection conn=null;
         		try {
 					conn = getConn();
+					String msg=ex.getMessage();
+					if(msg.length()>240)
+						msg = msg.substring(0, 240);
 					int rs =conn.createStatement().executeUpdate(errorSql
 							.replace("$ts_key", keyText)
 							.replace("$ts_error", 
-									(new Date().toString())+ex.getMessage()
+									(new Date().toString())+msg
 									));
 				} catch (SQLException e) {
 					LOG.warn("update sql state error:{}",e);

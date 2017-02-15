@@ -3,6 +3,7 @@ package com.alibaba.datax.plugin.writer.elasticwriter;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,11 +29,18 @@ public class ElasticBatchWriter extends Writer {
     	 * Map<database, <column,value>>
     	 */
     	public static Map<String,Map<String,String>> ES_SERVERS;
+    	public static MysqlConfigure MONITOR_CENTER;
+    	
     	@Override
         public void init() {
     		super.init();
+    		MONITOR_CENTER=new MysqlConfigure();
+    	}
+    	
+    	@Override
+		public void prepare() {
     		//resultset: [dbName, hostUrl]
-    		List<Map<String,String>> li = new MysqlConfigure().getConfig();
+    		List<Map<String,String>> li = MONITOR_CENTER.getConfig();
     		
     		ES_SERVERS=new HashMap<>(li.size());
     		for(Map<String,String> cfg : li){	
@@ -72,9 +80,12 @@ public class ElasticBatchWriter extends Writer {
     }
 
     public static class Task extends ElasticArrayWriter.Task {
-    	private int DATABASE_FIELD;
+    	private int DATABASE_FIELD;//当前记录所属database
+    	private int UPDATE_TIME_FIELD;//记录最后更新时间，跟踪执行进度
+    	
         private static final Logger LOG = LoggerFactory
                 .getLogger(Task.class);
+        
         
         @Override
         public void init() {
@@ -82,15 +93,29 @@ public class ElasticBatchWriter extends Writer {
         	
         	//批量reader读取记录时，$database字段存储在最后一个StringColumn中
         	DATABASE_FIELD = super.columnNumber;
+        	UPDATE_TIME_FIELD = this.writerSliceConfig.getInt(EsKey.UPDATE_TIME_FIELD,-1);
+        }
+        
+        static Map<String,RestClient> ClientHolder=new HashMap<String,RestClient>();
+        @Override
+        protected RestClient getClient(String host){
+        	if(!ClientHolder.containsKey(host))
+        	{
+        		synchronized (ClientHolder){
+	        		ClientHolder.put(host, 
+	        				this.createClient(host)
+	        				);
+        		}
+        	}
+        	return ClientHolder.get(host);
         }
         @Override
         public void startWrite(RecordReceiver recordReceiver){
-        	RestClient conn = null;
         	
         	List<Record> writeBuffer = new ArrayList<Record>(this.batchSize+30);//合并末尾的同一分组
-            try {
+        	String prevDb=null;
+        	try {
                 Record record;
-                String prevDb=null;
                 while ((record = recordReceiver.getFromReader()) != null) {
                 	if(record.getColumn(this.DATABASE_FIELD).asString()
                 			.equals(prevDb))
@@ -121,6 +146,11 @@ public class ElasticBatchWriter extends Writer {
                 	doInsertByDatabase(prevDb, writeBuffer);
                 }
             } catch (Exception e) {
+            	if(this.UPDATE_TIME_FIELD>-1 && prevDb!=null){
+					Job.MONITOR_CENTER.updateError(
+							prevDb,e);
+				}
+            	
                 throw DataXException.asDataXException(
                 		EsErrorCode.ERROR, e);
             } finally {
@@ -128,7 +158,7 @@ public class ElasticBatchWriter extends Writer {
             }
         }
         
-        private void doInsertByDatabase(String database,List<Record> writeBuffer) throws IOException{
+        private void doInsertByDatabase(String database,List<Record> writeBuffer) throws InterruptedException,IOException{
         	Map<String,String> es = Job.ES_SERVERS.get(database);
         	
         	if(es!=null){//Es server not deployed yet?
@@ -137,7 +167,19 @@ public class ElasticBatchWriter extends Writer {
             				database,(es.get("host")+"/"+es.get("index")) );
             	}
         		
-				doBulkInsert(super.newClient(es.get("host")),es.get("index"), writeBuffer);
+				doBulkInsert(
+						this.getClient(es.get("host"))
+						,es.get("index"), writeBuffer);
+				
+				if(this.UPDATE_TIME_FIELD>-1){
+					Job.MONITOR_CENTER.updateProgress(
+							database,
+							writeBuffer
+								.get(writeBuffer.size()-1)//last row
+								.getColumn(this.UPDATE_TIME_FIELD)
+								.asDate()
+							);
+				}
         	}else{
         		LOG.warn("task[{}] writing '{}'({}) docs to host 'NULL' ",this.getTaskId(),writeBuffer.size(),database);
         	}
@@ -145,5 +187,15 @@ public class ElasticBatchWriter extends Writer {
         	super.afterBulk(writeBuffer);
         }
         
+        @Override
+        public void destroy() {
+        	for(RestClient c: ClientHolder.values()){
+        		try {
+					c.close();
+				} catch (IOException e) {
+				}
+        	}
+        	ClientHolder.clear();
+        }
     }
 }

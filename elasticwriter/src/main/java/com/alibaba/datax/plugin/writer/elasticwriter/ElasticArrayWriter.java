@@ -3,12 +3,16 @@ package com.alibaba.datax.plugin.writer.elasticwriter;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.http.HttpHeaders;
+import org.apache.http.HttpHost;
+import org.apache.http.message.BasicHeader;
 import org.elasticsearch.client.RestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,7 +37,7 @@ public class ElasticArrayWriter extends Writer {
         @Override
         public void startWrite(RecordReceiver recordReceiver) {
         	if(super.parseArray){
-        		RestClient client = super.newClient(this.hostList.get(0));
+        		RestClient client = this.getClient(this.hostList.get(0));
         		
         		this.isCanRead=true;
         		startWriteWithConn(recordReceiver,client);
@@ -54,6 +58,9 @@ public class ElasticArrayWriter extends Writer {
 
                     if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
                     	record = trySplitGroupById(recordReceiver,writeBuffer);
+                    	if(writeBuffer.size()>2*batchSize)
+                    		LOG.warn("====encounter large orders: [{}] docs in a bulk===",writeBuffer.size());
+                    	
                     	doBulkInsert(conn,this.index, writeBuffer);
                         super.afterBulk(writeBuffer);
                         bufferBytes = 0;
@@ -78,16 +85,14 @@ public class ElasticArrayWriter extends Writer {
                 writeBuffer.clear();
                 bufferBytes = 0;
                 try {
-                	if(conn!=null)
-                		conn.close();
-                	conn=null;
+					conn.close();
 				} catch (IOException e) {
-					LOG.info("ElasticSearch RestClient error on close",e);
 				}
+                conn = null;
             }
         }
         
-        protected void doBulkInsert(RestClient conn,String idx,List<Record> records) throws IOException{
+        protected void doBulkInsert(RestClient conn,String idx,List<Record> records) throws InterruptedException,IOException{
         	
         	super.postRequest(conn,idx,records);
         }

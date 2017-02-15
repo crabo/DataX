@@ -2,6 +2,7 @@
 package com.alibaba.datax.plugin.writer.elasticwriter;
 
 import java.io.IOException;
+import java.net.ConnectException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -107,6 +108,7 @@ public class ElasticWriter extends Writer {
         protected boolean parseArray;
         protected List<String> columns;
         protected int columnNumber;
+        boolean skipError;
         
         private String indexCredential;
         protected String index;
@@ -117,7 +119,6 @@ public class ElasticWriter extends Writer {
         protected List<String> hostList;
         private Map<String, String> REQUEST_PARAMS;
 
-        static Map<String,RestClient> ClientHolder=new HashMap<String,RestClient>();
         BasicHeader _credentialHeader;
         BasicHeader getCredential(){
         	if(_credentialHeader==null)
@@ -159,6 +160,7 @@ public class ElasticWriter extends Writer {
             this.writeMode = writerSliceConfig.getString("writeMode", "update");//index 或  update
             this.columns = writerSliceConfig.getList("column", String.class);
             this.parseArray= writerSliceConfig.getBool("parseArray", false);
+            this.skipError = writerSliceConfig.getBool("skipError", false);
             this.columnNumber = this.columns.size();
             
             REQUEST_PARAMS=new HashMap<String,String>(0);//EMPTY
@@ -168,25 +170,21 @@ public class ElasticWriter extends Writer {
         public void prepare() {
         }
 
-        RestClient newClient(String host){
-        	if(!ClientHolder.containsKey(host))
-        	{
-        		synchronized (ClientHolder){
-	        		ClientHolder.put(host, 
-	    				RestClient.builder(new HttpHost[]{HttpHost.create(host)})
-	            			.setHttpClientConfigCallback(b -> b.setDefaultHeaders(
-	            	                Collections.singleton(new BasicHeader(HttpHeaders.ACCEPT_ENCODING, "gzip"))))
-	        	            .setRequestConfigCallback(b -> b.setContentCompressionEnabled(true))
-	            		.build()
-	        				);
-        		}
-        	}
-        	return ClientHolder.get(host);
+        protected RestClient createClient(String host){
+        	return RestClient.builder(new HttpHost[]{HttpHost.create(host)})
+			.setHttpClientConfigCallback(b -> b.setDefaultHeaders(
+	                Collections.singleton(new BasicHeader(HttpHeaders.ACCEPT_ENCODING, "gzip")))
+					)
+            .setRequestConfigCallback(b -> b.setContentCompressionEnabled(true))
+            .build();
+        }
+        protected RestClient getClient(String host){
+        	return createClient(host);
         }
         @Override
         public void startWrite(RecordReceiver recordReceiver) {
         	
-        	startWriteWithConn(recordReceiver,newClient(this.hostList.get(0)));
+        	startWriteWithConn(recordReceiver,this.getClient(this.hostList.get(0)));
         }
         
         private void startWriteWithConn(RecordReceiver recordReceiver,RestClient conn){
@@ -216,10 +214,14 @@ public class ElasticWriter extends Writer {
             } finally {
                 writeBuffer.clear();
                 bufferBytes = 0;
-                conn=null;
+                try {
+					conn.close();
+				} catch (IOException e) {
+				}
+                conn = null;
             }
         }
-        private void doBulkInsert(RestClient conn,List<Record> records) throws IOException{
+        private void doBulkInsert(RestClient conn,List<Record> records) throws InterruptedException,IOException{
     		postRequest(conn,this.index,records);
         }
         
@@ -236,15 +238,23 @@ public class ElasticWriter extends Writer {
         
         private HttpEntity getPostEntity(String idx,List<Record> records,Map<String,String> fails){
         	if(fails!=null){
+        		int count=0;
+        		String key=null;
         		for(int i=records.size()-1;i>=0;i--){
-        			if(!fails.containsKey(records.get(i).getColumn(0).asString()))
+        			key=records.get(i).getColumn(0).asString();
+        			if(!fails.containsKey(key))
+        			{
         				records.remove(i);
+        				count++;
+        			}
         		}
+        		if(count>0)
+        			LOG.info("ElasticSearch retrying skipped '{}' success docs, the first '_id'={} ",count,key);
         	}
         	StringBuilder sb = recordToDoc(idx,records);
         	return new NStringEntity(sb.toString(), ContentType.APPLICATION_JSON);
         }
-        protected void postRequest(RestClient conn,String idx,List<Record> records) throws IOException
+        protected void postRequest(RestClient conn,String idx,List<Record> records) throws InterruptedException,IOException
         {
         	int retries=1;
         	Map<String,String> fails=null;
@@ -255,34 +265,45 @@ public class ElasticWriter extends Writer {
 	        		if(fails==null || fails.isEmpty())
 	        			retries=20;//SUCESS
 	        		else{
-	        			LOG.info("ElasticSearch '_bulk' post failed, retrying with '{}' docs",fails.size());
+	        			LOG.info("ElasticSearch '_bulk' post failed, {}# retrying with '{}' docs",retries,fails.size());
 	        		}
-		        }catch(RuntimeException e){
+		        }catch(IllegalStateException ie){
+		        	String body=EntityUtils.toString(entity, StandardCharsets.UTF_8);
+		        	if(body.length()>1000)
+		        		body= body.substring(0,1000);
+		        	LOG.error("ElasticSearch '_bulk' post failed:\n{}",body);
+					throw ie;
+				}
+	        	catch(RuntimeException e){
 					if(e.getCause()!=null && e.getCause() instanceof TimeoutException){
-						try {
-							Thread.sleep(3000*retries);
-						} catch (InterruptedException e1) {
-						}
+						Thread.sleep(3000*retries);
 						LOG.warn("ElasticSearch timeout-error on request, {}# {} retring '{}' docs",retries,idx,records.size());
 					}else
 						throw e;
-				}catch(IOException ex){
-		    		try {
-            			if(retries>10){//NETWORK ERROR?
-            				LOG.warn("ElasticSearch IO-error too many times, low down 'batchSize' setting please!");
-            				Thread.sleep(1000*2^(retries-10));
-            			}
-    					Thread.sleep(3000*retries);
-	    				
-					} catch (InterruptedException e) {
-					}
+				}catch(ConnectException ce){
+					LOG.error("Connection refused!! pls check your host is reachable!");
+					Thread.sleep(10000);
+					retries=16;
+				}
+	        	catch(IOException ex){
+	        		if(retries==4){
+	        			String body=EntityUtils.toString(entity, StandardCharsets.UTF_8);
+	        			LOG.debug("failed bulk docs=\n{}",body);
+	        		}
+        			if(retries>10){//NETWORK ERROR?
+        				LOG.warn("ElasticSearch IO-error too many times, low down 'batchSize' setting please!");
+        				Thread.sleep(1000*2^(retries-10));
+        			}
+					Thread.sleep(3000*retries);
 		    		LOG.warn("ElasticSearch IO-error on request, {}# {} retring '{}' docs\n {}",retries,idx,records.size(),ex);
 		    	}
 	        	retries++;
     		}while(retries<18);
         	
         	if(fails!=null){
-        		LOG.error("========failed bulk docs=======\n{}",fails);
+        		LOG.error("========failed bulk docs=======\n{}",records);
+        		if(!skipError)
+        			throw new IllegalArgumentException("========failed post bulk docs=======");
         	}
         }
         private Map<String,String> doPost(RestClient conn,HttpEntity entity)throws IOException{
@@ -371,6 +392,24 @@ public class ElasticWriter extends Writer {
         	//if(!indices.contains(idx))//每一个批次设计的index数目
         	//	indices.add(idx);
         	
+        	Map<String,Object> meta=new HashMap<>();
+        	meta.put("_index",idx);
+        	meta.put("_type",this.document);
+        	for(int i=0;i<this.columnNumber;i++){
+        		if(i==this.dateField) continue;//分片控制字段不进入meta
+        		
+        		String colName = this.columns.get(i);
+        		if(!colName.startsWith("_"))//连续的下划线字段，将一一进入meta
+        			break;
+        		else{
+        			meta.put(colName,r.getColumn(i).getRawData());
+        		}
+        	}
+        	sb.append(
+        			JSON.toJSONString(meta)
+    			);
+        	/*
+        	
         	sb.append("{\"_index\":\"").append(idx)
         		.append("\",\"_type\":\"").append(this.document)
         		.append("\"");
@@ -390,6 +429,7 @@ public class ElasticWriter extends Writer {
         		}
         	}
         	sb.append("}");
+        	*/
         }
         
         private Map<String,Object> getNestedDoc(Record r){
