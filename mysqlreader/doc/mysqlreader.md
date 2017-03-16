@@ -44,6 +44,8 @@ MysqlReader插件实现了从Mysql读取数据。在底层实现上，MysqlReade
                     "parameter": {
                         "username": "root",
                         "password": "root",
+                        "decryptKey":"http://tokenserver.com?shop=***&version=$version",
+                        "decryptColumns":"nick:1,phone:4,search:6,search:7",
                         "column": [
                             "id",
                             "name"

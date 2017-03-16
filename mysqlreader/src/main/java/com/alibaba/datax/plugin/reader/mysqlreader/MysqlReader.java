@@ -6,6 +6,8 @@ import com.alibaba.datax.common.util.Configuration;
 import com.alibaba.datax.plugin.rdbms.reader.CommonRdbmsReader;
 import com.alibaba.datax.plugin.rdbms.reader.Constant;
 import com.alibaba.datax.plugin.rdbms.util.DataBaseType;
+
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,7 +71,14 @@ public class MysqlReader extends Reader {
         @Override
         public void init() {
             this.readerSliceConfig = super.getPluginJobConf();
-            this.commonRdbmsReaderTask = new CommonRdbmsReader.Task(DATABASE_TYPE,super.getTaskGroupId(), super.getTaskId());
+            String decryptColumns = this.readerSliceConfig.getString("decryptColumns");
+            if(StringUtils.isNotBlank(decryptColumns)){
+            	this.commonRdbmsReaderTask = new DecryptRdbmsReader.Task(DATABASE_TYPE,super.getTaskGroupId(), super.getTaskId()
+            			,this.readerSliceConfig.getString("decryptKey")
+            			,decryptColumns);
+            }else
+            	this.commonRdbmsReaderTask = new CommonRdbmsReader.Task(DATABASE_TYPE,super.getTaskGroupId(), super.getTaskId());
+            
             this.commonRdbmsReaderTask.init(this.readerSliceConfig);
 
         }
