@@ -56,7 +56,7 @@ public class JdSecret
     }
     
     public void testCypto() throws IOException, SecretException{
-    	TaobaoSecurityClient client = new TaobaoSecurityClient("http://ryweb.kedaocrm.com/SyncData/GetShopDataSecretInfo?dbName=jdaehm&version=1");
+    	TaobaoSecurityClient client = new TaobaoSecurityClient("http://ryweb.aa.com/SyncData/GetShopDataSecretInfo?dbName=jdaehm&version=1");
     	for(Entry<String,String> kv : PlainWithCrypt.entrySet())
     	{
     		System.out.println(kv.getKey()+" = "+
