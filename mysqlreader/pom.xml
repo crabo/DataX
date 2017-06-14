@@ -30,7 +30,7 @@
 			<artifactId>taobao-sdk-java</artifactId>
 			<version>1.0</version>
 			<scope>system</scope>
-            <systemPath>${project.basedir}/lib/taobao-sdk-java-auto_1488419626965-20170302.jar</systemPath>
+            <systemPath>${project.basedir}/lib/taobao-sdk-java-auto_1497412535911-20170614.jar</systemPath>
 		</dependency>
 		<dependency>
 			<groupId>org.slf4j</groupId>

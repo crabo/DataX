@@ -11,6 +11,7 @@ import com.alibaba.datax.plugin.rdbms.util.DBUtilErrorCode;
 import com.alibaba.datax.plugin.rdbms.util.DataBaseType;
 import com.alibaba.datax.plugin.reader.mysqlreader.MysqlReader.Job;
 import com.taobao.api.SecretException;
+import com.taobao.api.security.SecurityConstants;
 
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -54,7 +55,7 @@ public class DecryptRdbmsReader {
 			{
 
 				decryptUrl = decryptUrl.replace("\r","").replace("\n","");
-				this.shopId = decryptUrl.substring(decryptUrl.indexOf("=")+1,decryptUrl.indexOf("&")).trim();
+				this.shopId = decryptUrl.substring(decryptUrl.indexOf("=")+1,decryptUrl.indexOf("&"));
 				securityClient =  new TaobaoSecurityClient(decryptUrl);
 
 				decryptColumns = new ArrayList<Integer>();
@@ -92,14 +93,7 @@ public class DecryptRdbmsReader {
 	            		);
 	            	record.setColumn(col, new StringColumn(plainText));
 	            	
-	            	if(!hasEncrypt) hasEncrypt=encryptText.indexOf("~")>-1;
-	            	if(count<50 && hasEncrypt)
-	            	{
-	            		LOG.info("decrypt column#{} value '{}' to '{}'",col
-	            				,encryptText
-	            				,plainText);
-	            		count++;
-	            	}
+	            	
             	}
             }
             
@@ -115,11 +109,31 @@ public class DecryptRdbmsReader {
 		
 		private String decryptText(String encyptString,String type){
 			try {
+				//混合解密模式
+				if("mixed".equals(type)){
+					if(encyptString.indexOf(SecurityConstants.SIMPLE_SEPARATOR)>-1){
+						if(encyptString.endsWith(SecurityConstants.SIMPLE_SEPARATOR))
+							return securityClient.decrypt(encyptString, SecurityConstants.SIMPLE,this.shopId);
+						else{
+							int start = encyptString.indexOf(SecurityConstants.SIMPLE_SEPARATOR);
+							int end =   encyptString.lastIndexOf(SecurityConstants.SIMPLE_SEPARATOR);
+							String part = encyptString.substring(start, end+1);
+							String plain = securityClient.decrypt(part, SecurityConstants.SIMPLE,this.shopId);
+							return encyptString.replace(part, plain);
+						}
+					}else if(encyptString.indexOf(SecurityConstants.PHONE_SEPARATOR)>-1){
+						return securityClient.decrypt(encyptString, SecurityConstants.PHONE,this.shopId);
+					}else if(encyptString.indexOf(SecurityConstants.NORMAL_SEPARATOR)>-1){
+						return securityClient.decrypt(encyptString, SecurityConstants.NORMAL,this.shopId);
+					}else
+						return encyptString;
+				}
+				
 				return securityClient.decrypt(encyptString, type,this.shopId);
 			} catch (SecretException e) {
-				LOG.warn("decryptText text '{}' with '{}' error! \n{}",encyptString,type,e);
+				LOG.warn("shop '{}' decryptText text '{}' with '{}' error! \n{}",this.shopId,encyptString,type,e);
 				throw DataXException.asDataXException(
-                        DBUtilErrorCode.UNSUPPORTED_TYPE,"decryptText('"+encyptString+"') error occured!",e);
+                        DBUtilErrorCode.UNSUPPORTED_TYPE,"shop '"+this.shopId+"'decryptText('"+encyptString+"') error occured!",e);
 			}
 		}
 		
