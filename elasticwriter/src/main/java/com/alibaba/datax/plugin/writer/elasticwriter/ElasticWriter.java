@@ -1,7 +1,9 @@
 
 package com.alibaba.datax.plugin.writer.elasticwriter;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.net.ConnectException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -11,7 +13,9 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.TimeoutException;
+import java.util.zip.GZIPOutputStream;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
@@ -20,6 +24,8 @@ import org.apache.http.HttpEntity;
 import org.apache.http.HttpHeaders;
 import org.apache.http.HttpHost;
 import org.apache.http.ParseException;
+import org.apache.http.client.entity.EntityBuilder;
+import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
 import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
@@ -173,9 +179,11 @@ public class ElasticWriter extends Writer {
         protected RestClient createClient(String host){
         	return RestClient.builder(new HttpHost[]{HttpHost.create(host)})
 			.setHttpClientConfigCallback(b -> b.setDefaultHeaders(
-	                Collections.singleton(new BasicHeader(HttpHeaders.ACCEPT_ENCODING, "gzip")))
-					)
-            .setRequestConfigCallback(b -> b.setContentCompressionEnabled(true))
+	                Collections.singleton(
+	                		new BasicHeader(HttpHeaders.CONNECTION, "keep-alive"))
+	                		//new BasicHeader(HttpHeaders.CONTENT_ENCODING, "gzip"))
+	                ))
+            //.setRequestConfigCallback(b -> b.setContentCompressionEnabled(true))
             .build();
         }
         protected RestClient getClient(String host){
@@ -252,7 +260,31 @@ public class ElasticWriter extends Writer {
         			LOG.info("ElasticSearch retrying skipped '{}' success docs, the first '_id'={} ",count,key);
         	}
         	StringBuilder sb = recordToDoc(idx,records);
+        	//return getGzipEntity(sb);
         	return new NStringEntity(sb.toString(), ContentType.APPLICATION_JSON);
+        }
+        ByteArrayEntity getGzipEntity(StringBuilder data){
+        	ByteArrayOutputStream outs = null;
+        	GZIPOutputStream gzipOut=null;
+        	try
+        	{
+	        	try{
+	        		outs = new ByteArrayOutputStream();  
+	        	
+	        		gzipOut = new GZIPOutputStream(outs);
+	    			gzipOut.write(data.toString().getBytes("utf-8"));
+	    		} catch (UnsupportedEncodingException e) {
+	    			LOG.info("docs encoding error.",e);
+	    		}finally{
+	    			if(gzipOut!=null)
+	    				gzipOut.close();
+	    			outs.close();
+	    		}
+        	} catch (IOException ex) {
+        		LOG.info("gzip failed.",ex);
+        	}
+            
+            return new ByteArrayEntity(outs.toByteArray(),ContentType.APPLICATION_JSON);
         }
         protected void postRequest(RestClient conn,String idx,List<Record> records) throws InterruptedException,IOException
         {
@@ -263,9 +295,10 @@ public class ElasticWriter extends Writer {
 	        	try{
 	        		fails = doPost(conn,entity);
 	        		if(fails==null || fails.isEmpty())
-	        			retries=20;//SUCESS
+	        			retries=30;//SUCESS
 	        		else{
 	        			LOG.info("ElasticSearch '_bulk' post failed, {}# retrying with '{}' docs",retries,fails.size());
+	        			Thread.sleep(5000*retries);
 	        		}
 		        }catch(IllegalStateException ie){
 		        	String body=EntityUtils.toString(entity, StandardCharsets.UTF_8);
@@ -276,29 +309,29 @@ public class ElasticWriter extends Writer {
 				}
 	        	catch(RuntimeException e){
 					if(e.getCause()!=null && e.getCause() instanceof TimeoutException){
-						Thread.sleep(3000*retries);
+						Thread.sleep(10000*retries);
 						LOG.warn("ElasticSearch timeout-error on request, {}# {} retring '{}' docs",retries,idx,records.size());
 					}else
 						throw e;
 				}catch(ConnectException ce){
 					LOG.error("Connection refused!! pls check your host is reachable!");
-					Thread.sleep(10000);
-					retries=16;
+					Thread.sleep(30000);
+					retries=26;
 				}
 	        	catch(IOException ex){
 	        		if(retries==4){
 	        			String body=EntityUtils.toString(entity, StandardCharsets.UTF_8);
 	        			LOG.debug("failed bulk docs=\n{}",body);
 	        		}
-        			if(retries>10){//NETWORK ERROR?
+        			if(retries>20){//NETWORK ERROR?
         				LOG.warn("ElasticSearch IO-error too many times, low down 'batchSize' setting please!");
-        				Thread.sleep(1000*2^(retries-10));
+        				Thread.sleep(2^(retries-20)*1000);
         			}
-					Thread.sleep(3000*retries);
+					Thread.sleep(10000*retries);
 		    		LOG.warn("ElasticSearch IO-error on request, {}# {} retring '{}' docs\n {}",retries,idx,records.size(),ex);
 		    	}
 	        	retries++;
-    		}while(retries<18);
+    		}while(retries<28);
         	
         	if(fails!=null){
         		LOG.error("========failed bulk docs=======\n{}",records);

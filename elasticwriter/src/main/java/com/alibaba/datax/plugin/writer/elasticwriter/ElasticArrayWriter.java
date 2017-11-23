@@ -241,6 +241,16 @@ public class ElasticArrayWriter extends Writer {
 	        		}else
 	        			prevId=id;
 	    		}
+	        	if(!groups.isEmpty()){
+	        		groups.forEach((id,rec)->{
+	        			if(rec.size()>3){
+	        				LOG.debug("record [{}] merged '{}' nested children",id,rec.size());
+	        			}else if(LOG.isTraceEnabled()){
+	        				LOG.debug("record [{}] merged '{}' nested children",id,rec.size());
+	        			}
+	        		});
+	        		
+	        	}
         	}
         	return groups;
         }
