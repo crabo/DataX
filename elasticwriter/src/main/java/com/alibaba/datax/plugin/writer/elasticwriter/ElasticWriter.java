@@ -162,7 +162,9 @@ public class ElasticWriter extends Writer {
             
             
             this.batchSize = writerSliceConfig.getInt("batchSize", 2048);
-            this.batchByteSize = writerSliceConfig.getInt("batchByteSize", 0x2000000);
+            if(this.batchSize<2000)//by crabo
+            	this.batchSize = 3000;
+            this.batchByteSize = writerSliceConfig.getInt("batchByteSize", 0x5000000);
             this.writeMode = writerSliceConfig.getString("writeMode", "update");//index 或  update
             this.columns = writerSliceConfig.getList("column", String.class);
             this.parseArray= writerSliceConfig.getBool("parseArray", false);
@@ -178,12 +180,13 @@ public class ElasticWriter extends Writer {
 
         protected RestClient createClient(String host){
         	return RestClient.builder(new HttpHost[]{HttpHost.create(host)})
-			.setHttpClientConfigCallback(b -> b.setDefaultHeaders(
+			/*.setHttpClientConfigCallback(b -> b.setDefaultHeaders(
 	                Collections.singleton(
 	                		new BasicHeader(HttpHeaders.CONNECTION, "keep-alive"))
 	                		//new BasicHeader(HttpHeaders.CONTENT_ENCODING, "gzip"))
 	                ))
             //.setRequestConfigCallback(b -> b.setContentCompressionEnabled(true))
+            */
             .build();
         }
         protected RestClient getClient(String host){
@@ -204,7 +207,7 @@ public class ElasticWriter extends Writer {
                     writeBuffer.add(record);
                     bufferBytes += record.getMemorySize();
 
-                    if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
+                    if (bufferBytes >= batchByteSize || writeBuffer.size() >= batchSize){
                     	doBulkInsert(conn, writeBuffer);
                     	afterBulk(writeBuffer);
                         bufferBytes = 0;

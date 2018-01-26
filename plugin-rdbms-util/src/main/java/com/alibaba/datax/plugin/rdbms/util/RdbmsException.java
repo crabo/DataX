@@ -98,14 +98,16 @@ public class RdbmsException extends DataXException{
     }
 
     public static DBUtilErrorCode mySqlQueryErrorAna(String e){
-        if (e.contains(Constant.MYSQL_TABLE_NAME_ERR1) && e.contains(Constant.MYSQL_TABLE_NAME_ERR2)){
-            return DBUtilErrorCode.MYSQL_QUERY_TABLE_NAME_ERROR;
-        }else if (e.contains(Constant.MYSQL_SELECT_PRI)){
-            return DBUtilErrorCode.MYSQL_QUERY_SELECT_PRI_ERROR;
-        }else if (e.contains(Constant.MYSQL_COLUMN1) && e.contains(Constant.MYSQL_COLUMN2)){
-            return DBUtilErrorCode.MYSQL_QUERY_COLUMN_ERROR;
-        }else if (e.contains(Constant.MYSQL_WHERE)){
-            return DBUtilErrorCode.MYSQL_QUERY_SQL_ERROR;
+        if(e!=null){
+            if (e.contains(Constant.MYSQL_TABLE_NAME_ERR1) && e.contains(Constant.MYSQL_TABLE_NAME_ERR2)){
+                return DBUtilErrorCode.MYSQL_QUERY_TABLE_NAME_ERROR;
+            }else if (e.contains(Constant.MYSQL_SELECT_PRI)){
+                return DBUtilErrorCode.MYSQL_QUERY_SELECT_PRI_ERROR;
+            }else if (e.contains(Constant.MYSQL_COLUMN1) && e.contains(Constant.MYSQL_COLUMN2)){
+                return DBUtilErrorCode.MYSQL_QUERY_COLUMN_ERROR;
+            }else if (e.contains(Constant.MYSQL_WHERE)){
+                return DBUtilErrorCode.MYSQL_QUERY_SQL_ERROR;
+            }
         }
         return DBUtilErrorCode.READ_RECORD_FAIL;
     }

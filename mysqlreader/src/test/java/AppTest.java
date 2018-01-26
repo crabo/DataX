@@ -97,8 +97,8 @@ public class AppTest
     }  
     
     public void testShopCypto() throws IOException, SecretException{
-    	String shopId="ruxiqjd";
-    	String data="~MYDp8RwlM1g+o6aJCJmnR3SdAXUtEok9NBX2d7u/w1E=~1~";
+    	String shopId="ftljtzmd";
+    	String data="~tuE92HkOAO5pQkqCDa0sf/M9mOfBI4zB0Ycln0lZwx0=~1~";
     	
     	TaobaoSecurityClient client = new TaobaoSecurityClient("http://ryweb.kedaocrm.com/SyncData/GetShopDataSecretInfo?dbName="+shopId+"&version=1");
     	
@@ -108,11 +108,11 @@ public class AppTest
     }
     
     public void testShopCyptoLocal() throws IOException, SecretException{
-    	String shopId="ruxiqjd";
-    	String data="~MYDp8RwlM1g+o6aJCJmnR3SdAXUtEok9NBX2d7u/w1E=~1~";
+    	String shopId="ftljtzmd";
+    	String data="~tuE92HkOAO5pQkqCDa0sf/M9mOfBI4zB0Ycln0lZwx0=~1~";
     	
     	
-    	String base64 = Base64.encodeToString("bdBobcRiXFvSNEkkIj+cWg=="
+    	String base64 = Base64.encodeToString("9C83T0of8zU0gwmhB0DSqg=="
     			.getBytes("utf-8"), false);
     	System.out.println(
     			TaobaoUtils.aesDecrypt(data,Base64.decode(base64))

@@ -171,7 +171,9 @@ public final class CommunicationTool {
         }
 
         private static String getPercentage(final Communication communication) {
-            return df.format(communication.getDoubleCounter(PERCENTAGE) * 100) + "%";
+        	double d =communication.getDoubleCounter(PERCENTAGE);
+        	if(d>10) d=d-(int)d;
+            return df.format(d * 100) + "%";
         }
     }
 

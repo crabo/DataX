@@ -114,8 +114,8 @@ public class JobContainer extends AbstractContainer {
                 LOG.info("jobContainer starts to do prepare ...");
                 this.prepare();
                 LOG.info("jobContainer starts to do split ...");
-                //by crabo
-            	this.totalStage = this.splitMultiJobs();
+            	//by crabo 
+                this.totalStage = this.splitMultiJobs();
                 LOG.info("jobContainer starts to do schedule ...");
                 this.schedule();
                 LOG.debug("jobContainer starts to do post ...");
@@ -428,7 +428,7 @@ public class JobContainer extends AbstractContainer {
 		        }
 	
 	        }
-	        LOG.debug("contentConfig configuration: "+ JSON.toJSONString(allSliceConfigs));
+	        LOG.trace("contentConfig configuration: "+ JSON.toJSONString(allSliceConfigs));
 	        
 	        //更新为最终的配置文件
 	        this.configuration.set(CoreConstant.DATAX_JOB_CONTENT, allSliceConfigs);
@@ -466,7 +466,7 @@ public class JobContainer extends AbstractContainer {
                 readerTaskConfigs, writerTaskConfigs, transformerList,0);
 
 
-        LOG.debug("contentConfig configuration: "+ JSON.toJSONString(contentConfig));
+        LOG.trace("contentConfig configuration: "+ JSON.toJSONString(contentConfig));
 
         this.configuration.set(CoreConstant.DATAX_JOB_CONTENT, contentConfig);
 
@@ -522,14 +522,17 @@ public class JobContainer extends AbstractContainer {
         // 取较小值
         this.needChannelNumber = needChannelNumberByByte < needChannelNumberByRecord ?
                 needChannelNumberByByte : needChannelNumberByRecord;
-
-        // 如果从byte或record上设置了needChannelNumber则退出
-        if (this.needChannelNumber < Integer.MAX_VALUE) {
-            return;
-        }
-
+        
+        //by crabo:
         boolean isChannelLimit = (this.configuration.getInt(
                 CoreConstant.DATAX_JOB_SETTING_SPEED_CHANNEL, 0) > 0);
+        // 如果从byte或record上设置了needChannelNumber则退出
+        if (!isChannelLimit && this.needChannelNumber < Integer.MAX_VALUE) {
+            return;
+        }
+        //by crabo
+        //boolean isChannelLimit = (this.configuration.getInt(
+        //        CoreConstant.DATAX_JOB_SETTING_SPEED_CHANNEL, 0) > 0);
         if (isChannelLimit) {
             this.needChannelNumber = this.configuration.getInt(
                     CoreConstant.DATAX_JOB_SETTING_SPEED_CHANNEL);

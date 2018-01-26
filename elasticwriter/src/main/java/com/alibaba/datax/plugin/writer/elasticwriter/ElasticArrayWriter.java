@@ -56,7 +56,7 @@ public class ElasticArrayWriter extends Writer {
                     writeBuffer.add(record);
                     bufferBytes += record.getMemorySize();
 
-                    if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
+                    if (bufferBytes >= batchByteSize || writeBuffer.size() >= batchSize){
                     	record = trySplitGroupById(recordReceiver,writeBuffer);
                     	if(writeBuffer.size()>2*batchSize)
                     		LOG.warn("====encounter large orders: [{}] docs in a bulk===",writeBuffer.size());

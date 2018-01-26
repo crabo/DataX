@@ -96,7 +96,7 @@ public class JsonWriter extends Writer {
                     writeBuffer.add(record);
                     bufferBytes += record.getMemorySize();
 
-                    if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
+                    if (bufferBytes >= batchByteSize || writeBuffer.size() >= batchSize){
                     	record = trySplitGroupById(recordReceiver,writeBuffer);
                     	doBulkInsert(conn,this.index, writeBuffer);
                         super.afterBulk(writeBuffer);

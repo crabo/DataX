@@ -6,11 +6,14 @@ import com.alibaba.datax.common.plugin.AbstractJobPlugin;
 import com.alibaba.datax.common.plugin.AbstractPlugin;
 import com.alibaba.datax.common.plugin.AbstractTaskPlugin;
 import com.alibaba.datax.common.util.Configuration;
+import com.alibaba.datax.core.taskgroup.TaskGroupContainer;
 import com.alibaba.datax.core.taskgroup.runner.AbstractRunner;
 import com.alibaba.datax.core.taskgroup.runner.ReaderRunner;
 import com.alibaba.datax.core.taskgroup.runner.WriterRunner;
 import com.alibaba.datax.core.util.FrameworkErrorCode;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -23,6 +26,8 @@ import java.util.Map;
  */
 public class LoadUtil {
     private static final String pluginTypeNameFormat = "plugin.%s.%s";
+    private static final Logger LOG = LoggerFactory
+            .getLogger(LoadUtil.class);
 
     private LoadUtil() {
     }
@@ -185,6 +190,7 @@ public class LoadUtil {
                 pluginName));
         if (null == jarLoader) {
             String pluginPath = pluginConf.getString("path");
+            LOG.debug("getJarLoader '{}' from path:{}",pluginName,pluginPath);
             if (StringUtils.isBlank(pluginPath)) {
                 throw DataXException.asDataXException(
                         FrameworkErrorCode.RUNTIME_ERROR,

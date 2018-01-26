@@ -93,6 +93,9 @@ public class TaobaoSecurityClient implements SecurityConstants{
     		LOG.info("shop '{}' is not TOP encrypted.",shopId);
     		return;
     	}
+    	if(result.get("ReturnValue")==null){
+    		throw new SecretException("Invalid secret ReturnValue: "+result.get("Description"));
+    	}
     	
     	resp = TaobaoUtils.aesDecrypt(result.get("ReturnValue").toString(), 
     			decryptKey.getBytes(Constants.CHARSET_UTF8));

@@ -27,7 +27,7 @@ public class EngineTest extends CaseInitializer {
 		LoadUtil.bind(this.configuration);
 	}
 
-
+	@Test
 	public void test_entry() throws Throwable {
 		String jobConfig = this.configuration.toString();
 
@@ -36,12 +36,12 @@ public class EngineTest extends CaseInitializer {
 		writer.write(jobConfig);
 		writer.flush();
 		writer.close();
-		String[] args = { "-job", jobFile, "-mode", "standalone" };
+		String[] args = {"-jobid","-1", "-job", jobFile, "-mode", "standalone" };
 
 		Engine.entry(args);
 	}
 
-    @Test
+    
     public void testNN() {
         try {
             throwEE();

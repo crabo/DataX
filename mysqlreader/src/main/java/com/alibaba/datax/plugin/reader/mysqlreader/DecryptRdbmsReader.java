@@ -66,7 +66,7 @@ public class DecryptRdbmsReader {
 					decryptColumnTypes.add(typeIdx[0]);
 					decryptColumns.add(Integer.valueOf(typeIdx[1]));
 				}
-				LOG.info("prepare to decrypt columns:"+todecryptColumns);
+				LOG.debug("prepare to decrypt columns:"+todecryptColumns);
 			}else
 				securityClient=null;
 		}

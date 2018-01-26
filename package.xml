@@ -224,6 +224,20 @@
             </includes>
             <outputDirectory>datax</outputDirectory>
         </fileSet>
+         <fileSet>
+            <directory>verticawriter/target/datax/</directory>
+            <includes>
+                <include>**/*.*</include>
+            </includes>
+            <outputDirectory>datax</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>elasticwriter/target/datax/</directory>
+            <includes>
+                <include>**/*.*</include>
+            </includes>
+            <outputDirectory>datax</outputDirectory>
+        </fileSet>
         <fileSet>
             <directory>streamwriter/target/datax/</directory>
             <includes>

@@ -52,7 +52,8 @@ public abstract class Channel {
         int capacity = configuration.getInt(
                 CoreConstant.DATAX_CORE_TRANSPORT_CHANNEL_CAPACITY, 2048);
         long byteSpeed = configuration.getLong(
-                CoreConstant.DATAX_CORE_TRANSPORT_CHANNEL_SPEED_BYTE, 1024 * 1024);
+                CoreConstant.DATAX_JOB_SETTING_SPEED_BYTE,1024 * 1024);
+                //by crabo. CoreConstant.DATAX_CORE_TRANSPORT_CHANNEL_SPEED_BYTE, 1024 * 1024);
         long recordSpeed = configuration.getLong(
                 CoreConstant.DATAX_CORE_TRANSPORT_CHANNEL_SPEED_RECORD, 10000);
 
@@ -220,6 +221,7 @@ public abstract class Channel {
                     recordLimitSleepTime : byteLimitSleepTime;
             if (sleepTime > 0) {
                 try {
+                    Channel.LOG.info("Channel sleep "+sleepTime+"ms for speed limit.");
                     Thread.sleep(sleepTime);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();

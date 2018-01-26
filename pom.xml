@@ -46,48 +46,49 @@
 
         <!-- reader -->
         <module>mysqlreader</module>
-        <module>drdsreader</module>
-        <module>sqlserverreader</module>
-        <module>postgresqlreader</module>
-        <module>oraclereader</module>
-        <module>odpsreader</module>
-        <module>otsreader</module>
+        
+        
+        
+        
+        
+        
         <module>txtfilereader</module>
-        <module>hdfsreader</module>
+        
         <module>streamreader</module>
-        <module>hbasereader</module>
-        <module>ossreader</module>
-        <module>ftpreader</module>
-        <module>mongodbreader</module>
-        <module>rdbmsreader</module>
-        <module>hbase11xreader</module>
-        <module>hbase094xreader</module>
+        
+        
+        
+        
+        
+        
+        
 
         <!-- writer -->
         <module>mysqlwriter</module>
-        <module>drdswriter</module>
-        <module>odpswriter</module>
+        <module>elasticwriter</module>
+        
+        
         <module>txtfilewriter</module>
-        <module>ftpwriter</module>
-        <module>hdfswriter</module>
+        
+        
         <module>streamwriter</module>
-        <module>otswriter</module>
-        <module>oraclewriter</module>
-        <module>sqlserverwriter</module>
-        <module>postgresqlwriter</module>
-        <module>osswriter</module>
-        <module>mongodbwriter</module>
-        <module>adswriter</module>
-        <module>ocswriter</module>
-        <module>rdbmswriter</module>
-        <module>hbase11xwriter</module>
-        <module>hbase094xwriter</module>
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
 
         <!-- some support module -->
         <module>plugin-rdbms-util</module>
         <module>plugin-unstructured-storage-util</module>
         <!-- developing module -->
-        <module>hbasewriter</module>
+        
   </modules>
 
     <dependencyManagement>
@@ -123,34 +124,7 @@
                 <version>${logback-classic-version}</version>
             </dependency>
 
-            <dependency>
-                <groupId>com.taobao.tddl</groupId>
-                <artifactId>tddl-client</artifactId>
-                <version>${tddl.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>com.google.guava</groupId>
-                        <artifactId>guava</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>com.taobao.diamond</groupId>
-                        <artifactId>diamond-client</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-
-            <dependency>
-                <groupId>com.taobao.diamond</groupId>
-                <artifactId>diamond-client</artifactId>
-                <version>${diamond.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.alibaba.search.swift</groupId>
-                <artifactId>swift_client</artifactId>
-                <version>${swift-version}</version>
-            </dependency>
-
+           
             <dependency>
                 <groupId>junit</groupId>
                 <artifactId>junit</artifactId>
@@ -186,7 +160,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>2.3.2</version>
+                <version>3.5.1</version>
                 <configuration>
                     <source>1.6</source>
                     <target>1.6</target>
