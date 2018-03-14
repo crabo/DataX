@@ -25,7 +25,7 @@ public class AppTest
         return new TestSuite( AppTest.class );
     }
     
-    String json="{\"alipay_no\": \"ALI\",          \"available_confirm_fee\": \"0.00\",                 \"buyer_memo\": \"\",          \"buyer_message\": \"\",          \"buyer_nick\": \"鱼\",          \"buyer_obtain_point_fee\": 21,          \"buyer_rate\": 0,          \"cod_fee\": \"0.00\",          \"cod_status\": \"NEW_CREATED\",          \"commission_fee\": \"1.84\",          \"consign_time\": \"2015-02-26T13:34:35+08:00\",          \"consign_time_time\": \"13:34:35\",          \"create_time_\": \"2015-02-23T10:40:57+08:00\",          \"created\": \"2015-02-23T10:40:57+08:00\",          \"created_day\": \"2015-02-23\",          \"created_time\": \"10:40:57\",          \"discount_fee\": \"0.00\",          \"end_time\": \"2015-03-01T22:06:28+08:00\",          \"end_time_time\": \"22:06:28\",          \"is_has_post_fee\": 0,          \"kd_consign_company\": \"百世汇通\",          \"kd_receive_day\": \"2015-02-28\",          \"kd_receive_mobile\": \"18850555520\",          \"kd_receive_province\": \"福建省\",          \"kd_receive_status\": 1,          \"kd_receive_time\": \"2015-02-28T12:20:15+08:00\",          \"kd_receive_time_time\": \"12:20:15\",          \"kd_refund_fee\": \"0.00\",          \"kd_refund_status\": 0,          \"kd_wwid\": \"\",          \"member_grade\": 0,          \"modify_time\": \"2015-03-01T22:06:28+08:00\",          \"num\": 7      }";
+    String json="{\"alipay_no\": \"2015022321001001960081509040\",          \"available_confirm_fee\": \"0.00\",          \"buyer_alipay_no\": \"649127176@qq.com\",          \"buyer_email\": \"siyuhuang@vip.qq.com\",          \"buyer_memo\": \"\",          \"buyer_message\": \"\",          \"buyer_nick\": \"水洼的鱼\",          \"buyer_obtain_point_fee\": 21,          \"buyer_rate\": 0,          \"cod_fee\": \"0.00\",          \"cod_status\": \"NEW_CREATED\",          \"commission_fee\": \"1.84\",          \"consign_time\": \"2015-02-26T13:34:35+08:00\",          \"consign_time_time\": \"13:34:35\",          \"create_time_\": \"2015-02-23T10:40:57+08:00\",          \"created\": \"2015-02-23T10:40:57+08:00\",          \"created_day\": \"2015-02-23\",          \"created_time\": \"10:40:57\",          \"discount_fee\": \"0.00\",          \"end_time\": \"2015-03-01T22:06:28+08:00\",          \"end_time_time\": \"22:06:28\",          \"is_has_post_fee\": 0,          \"kd_consign_company\": \"百世汇通\",          \"kd_receive_day\": \"2015-02-28\",          \"kd_receive_mobile\": \"18850555520\",          \"kd_receive_province\": \"福建省\",          \"kd_receive_status\": 1,          \"kd_receive_time\": \"2015-02-28T12:20:15+08:00\",          \"kd_receive_time_time\": \"12:20:15\",          \"kd_refund_fee\": \"0.00\",          \"kd_refund_status\": 0,          \"kd_wwid\": \"\",          \"member_grade\": 0,          \"modify_time\": \"2015-03-01T22:06:28+08:00\",          \"num\": 7      }";
     
     public void testInsertRedis(){
     	Jedis client = getRedisClient();
@@ -34,7 +34,7 @@ public class AppTest
     	pp.multi();
     	for(int i=0;i<1000;i++){
     		
-    		pp.rpush("JSON_TEST", json.replace("ALI", String.valueOf(i)));
+    		pp.rpush("JSON_TEST", json.replace("2015022321001001960081509040", String.valueOf(i)));
     	}
     	pp.exec();
     	System.out.println(((System.currentTimeMillis()-ts)/1000)+ "s, insert ready!");
@@ -74,9 +74,9 @@ public class AppTest
 		//		redis.port=6333
 		//		redis.pass=kdcloud@Nascent_2017
 		// 在应用初始化的时候生成连接池
-		Jedis client= new JedisPool(config, "127.0.0.1", 6333,30000)
+		Jedis client= new JedisPool(config, "120.26.99.223", 6333,30000)
 				.getResource();
-		client.auth("zero");
+		client.auth("kdcloud@Nascent_2017");
 		return client;
     }
 }

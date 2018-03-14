@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.ConnectException;
 import java.nio.charset.StandardCharsets;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
@@ -420,10 +422,15 @@ public class ElasticWriter extends Writer {
         	sb.append("\n");
         }
         protected void appendMeta(StringBuilder sb,String idx,Record r){
-        	if(this.dateField>-1){
-        		idx = idx.replace("%%", 
-        				getShardPattern(r.getColumn(this.dateField).asDate())
-        			);
+        	if(this.dateField>-1 && r.getColumn(this.dateField).asDate()!=null){
+        		if(this.MONTH_PER_SHARD==0){//按日期建库180211，180212
+        			idx = idx.replace("%%",
+    					datePattern.format(r.getColumn(this.dateField).asDate()
+    				));
+        		}else//按月份建库： 1601， 1702
+	        		idx = idx.replace("%%", 
+	        				getShardPattern(r.getColumn(this.dateField).asDate())
+	        			);
         	}
         	//if(!indices.contains(idx))//每一个批次设计的index数目
         	//	indices.add(idx);
@@ -516,6 +523,7 @@ public class ElasticWriter extends Writer {
         public void destroy() {
         }
 
+        DateFormat datePattern = new SimpleDateFormat("yyMMdd");
         int _prevMonth=-1,_prevShard;//flyweight pattern
         /**
          * 2016-01-01 返回 1601

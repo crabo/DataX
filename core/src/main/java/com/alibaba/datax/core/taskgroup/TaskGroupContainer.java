@@ -403,15 +403,22 @@ public class TaskGroupContainer extends AbstractContainer {
     	
     	public static void notifyError(Configuration cfg,Throwable ex){
     		String path = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
-    		SqlStateTracer.onError(path, ex);
+    		if("job.ts.txt".equals(path))
+                TxtStateTracer.onError(path, ex);
+            else
+                SqlStateTracer.onError(path, ex);
     	}
     	
     	public static void read(Configuration cfg) throws ClassNotFoundException{
-    		SqlStateTracer.init(cfg);//needed only in sqlState
-    		
     		String tsKey = cfg.getString("job.setting.ts_file","job.ts.txt");//timestamp在当前目录下的文件名。 不配置job.setting.ts_interval_sec则不启用deltaJob
+    		String start;
+            if("job.ts.txt".equals(tsKey))
+                start=TxtStateTracer.read(tsKey);
+            else{
+                SqlStateTracer.init(cfg);//needed only in sqlState
+                start=SqlStateTracer.read(tsKey);
+            }
     		
-    		String start=SqlStateTracer.read(tsKey);
             if(start==null || start.length()==0)//文件读取异常？从上次job中读取
                 start = cfg.getString("job.setting.ts_end",getIntervalTime(null,0,cfg.getInt("job.setting.ts_adjustnow_sec",0),0));
             
@@ -445,7 +452,7 @@ public class TaskGroupContainer extends AbstractContainer {
     	static java.util.regex.Pattern REGEX_TS_START = java.util.regex.Pattern.compile("(\\w*\\.+\\w*)\\W*ts_start");
     	static String parepareBatchEndSql(Configuration cfg,String sql){
     		if(cfg.getInt("job.setting.ts_batch_mins",0)>0 //不存在ts_end???
-    				&& sql.indexOf("$ts_end")<0 && sql.indexOf("$ts_start")>0){
+    				&& sql!=null && sql.indexOf("$ts_end")<0 && sql.indexOf("$ts_start")>0){
     			
     			Matcher m = REGEX_TS_START.matcher(sql);
     			if(m.find()){
@@ -473,7 +480,10 @@ public class TaskGroupContainer extends AbstractContainer {
     	}
     	public static void write(Configuration cfg){
     		String file = cfg.getString("job.setting.ts_file","job.ts.txt");
-    		SqlStateTracer.write(file,cfg.getString("job.setting.ts_end"));
+            if("job.ts.txt".equals(file))
+                TxtStateTracer.write(file,cfg.getString("job.setting.ts_end"));
+            else
+                SqlStateTracer.write(file,cfg.getString("job.setting.ts_end"));
 
             LOG.info(">>>  $ts_start = {} <<<",cfg.getString("job.setting.ts_end"));
     	}
@@ -483,10 +493,10 @@ public class TaskGroupContainer extends AbstractContainer {
     		Calendar calc = Calendar.getInstance();
     		
     		Date now=new Date();
-    		if(mins<=0){//未设置间隔， 返回Now
+    		if(mins<=0){//未设置批次执行间隔， 返回Now，让程序始终在执行
     			calc.setTime(now);
     			calc.add(Calendar.SECOND, adjust_sec);
-    		}else//返回start后的n个小时
+    		}else//返回start后的第mins分钟
     		{
     			try {
 					calc.setTime(TS_FORMAT.parse(start));
@@ -532,6 +542,7 @@ public class TaskGroupContainer extends AbstractContainer {
     	
 
         static class TxtStateTracer{
+            static void init(Configuration cfg){}
         	static String read(String path){
         		BufferedReader br =null;
         		try{

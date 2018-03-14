@@ -1,0 +1,128 @@
+﻿{
+    "job": {
+		"setting": {
+			"ts_batch_mins":10,
+            "ts_interval_sec":60,
+            "speed": {
+                "channel": 1
+            }, 
+            "errorLimit": {
+                "record": 0
+            }
+        }, 
+        "content": [
+            			{
+                "reader": {
+                    "name": "redisreader", 
+                    "parameter": {
+                        "host": "localhost",
+                        "port": 6333,
+                        "auth": "pwd",
+                        "connectionTimeout": 60000,
+                        "readBatchSize":100,
+                        "dbNumber":15,
+                        "listKey": ["yanshu_EsSend"],
+                        "column": [
+                            {"value":"BatchNo","type":"string"},
+                            {"value":"SendTime","type":"date"},
+                            {"value":"SendType","type":"long"},
+                            {"value":"Mobile","type":"string"},
+                            {"value":"Content","type":"string"},
+                            {"value":"Mtseq","type":"long"},
+                            {"value":"OperatorType","type":"long"},
+                            {"value":"Province","type":"string"},
+                            {"value":"City","type":"string"},
+                            {"value":"Spnumber","type":"string"},
+                            {"value":"SpAccount","type":"string"},
+                            {"value":"Type","type":"long"},
+                            {"value":"IsSelf","type":"boolean"},
+                            {"value":"MarketingID","type":"string"},
+                            {"value":"Reviewtime","type":"date"},
+                            {"value":"AuditLoginName","type":"string"},
+                            {"value":"LoginName","type":"string"},
+                            {"value":"ShopName","type":"string"},
+                            {"value":"RealSendtime","type":"date"},
+                            {"value":"SDmark1","type":"string"},
+                            {"value":"SDmark2","type":"string"},
+                            
+                            {"value":"IsDELIVRD","type":"boolean"},
+                            {"value":"SendStatus","type":"string"},
+                            {"value":"ErrorInfo","type":"string"},
+                            {"value":"ReportTime","type":"date"},
+                            {"value":"ChannelNumber","type":"string"},
+                            {"value":"RPESDate","type":"date"},
+                            {"value":"RPmark1","type":"string"},
+                            {"value":"RPmark2","type":"string"},
+                        ]
+                    }
+                }, 
+                "writer": {
+                    "name": "elasticwriter", 
+                    "parameter": {
+                        "batchSize": 100,
+						"host":["localhost:9200"],
+                        "writeMode": "index",
+                        "index": "ys-report-%%",
+                        "document":"report",
+                        "id_field":0,
+				        "date_field":1,
+				        "month_per_shard":0, /*按日期分库*/
+                        "column": [
+                            "BatchNo", "SendTime","SendType","Mobile","Content"
+                           ,"Mtseq","OperatorType","Province","City","Spnumber","SpAccount"
+                           ,"Type","IsSelf","MarketingID","Reviewtime"
+                           ,"AuditLoginName","LoginName","ShopName"
+                           ,"RealSendtime","SDmark1","SDmark2"
+                        ]
+                    }
+                }
+            }
+            
+            
+            ,{
+                "reader": {
+                    "name": "redisreader", 
+                    "parameter": {
+                        "host": "localhost",
+                        "port": 6333,
+                        "auth": "pwd",
+                        "connectionTimeout": 60000,
+                        "readBatchSize":100,
+                        "dbNumber":15,
+                        "listKey": ["yanshu_EsReport"],
+                        "column": [
+	                        {"value":"BatchNo","type":"string"},
+	                        {"value":"SendTime","type":"date"},
+                            {"value":"IsDELIVRD","type":"boolean"},
+                            {"value":"SendStatus","type":"string"},
+                            {"value":"ErrorInfo","type":"string"},
+                            {"value":"ReportTime","type":"date"},
+                            {"value":"ChannelNumber","type":"string"},
+                            {"value":"RPESDate","type":"date"},
+                            {"value":"RPmark1","type":"string"},
+                            {"value":"RPmark2","type":"string"},
+                        ]
+                    }
+                }, 
+                "writer": {
+                    "name": "elasticwriter", 
+                    "parameter": {
+                        "batchSize": 100, 
+                        "host":["localhost:9200"],
+                        "writeMode": "index",
+                        "index": "ys-report-%%", /*存在报告比发送先到*/
+                        "document":"report",
+                        "id_field":0,
+				        "date_field":5,
+				        "month_per_shard":0, /*按日期分库*/
+                        "column": [
+                            "BatchNo", "SendTime","IsDELIVRD"
+                           ,"SendStatus","ErrorInfo","ReportTime"
+                           ,"ChannelNumber","RPESDate","RPmark1","RPmark2"
+                        ]
+                    }
+                }
+            }
+        ]
+    }
+}

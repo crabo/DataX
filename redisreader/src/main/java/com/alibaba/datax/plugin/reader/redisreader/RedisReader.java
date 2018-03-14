@@ -1,5 +1,11 @@
 package com.alibaba.datax.plugin.reader.redisreader;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.alibaba.datax.common.exception.CommonErrorCode;
 import com.alibaba.datax.common.exception.DataXException;
 import com.alibaba.datax.common.plugin.RecordSender;
@@ -10,24 +16,6 @@ import com.alibaba.datax.common.util.Configuration;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.InputStream;
-import java.net.URI;
-import java.nio.charset.UnsupportedCharsetException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
  * Created by crabo yang on 17-8-31.
@@ -153,6 +141,7 @@ public class RedisReader extends Reader {
 		private Configuration readerSliceConfig;
 		private List<String> sourceKeys;
 		private int readBatchSize;
+		private int dbNumber;
 
 		@Override
 		public void init() {
@@ -162,6 +151,9 @@ public class RedisReader extends Reader {
 			
 			this.readBatchSize = this.readerSliceConfig.getInt(
 					Key.READ_BATCH_SIZE, 100);
+			
+			this.dbNumber = this.readerSliceConfig.getInt(
+					Key.DbNumber, 0);
 		}
 
 		@Override
@@ -185,6 +177,9 @@ public class RedisReader extends Reader {
 		    	  if(readerSliceConfig.getString(Key.AUTH_PWD)!=null)
 		    		  redisClient.auth(readerSliceConfig.getString(Key.AUTH_PWD));
 		    	  
+		    	  String channel = redisClient.select(this.dbNumber);
+		    	  LOG.info("connected with redis in db: #{} {}",this.dbNumber,channel);
+		    	  
 		      } catch (Exception e) {
 			        LOG.error("Can't create redis from pool", e);
 			        throw DataXException.asDataXException(CommonErrorCode.CONFIG_ERROR
@@ -201,7 +196,8 @@ public class RedisReader extends Reader {
 			TaskPluginCollector collector = super.getTaskPluginCollector();
 			Jedis client = getRedisClient();
 			for (String cacheKey : this.sourceKeys) {
-				LOG.debug(String.format("reading redis cache : [%s]", cacheKey));
+				long dataSize = client.llen(cacheKey);
+				LOG.debug("found '{}' items in redis cache [{}]", dataSize,cacheKey);
 				List<String> json=null;
 				int i=0;
 				try {

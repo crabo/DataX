@@ -10,6 +10,7 @@ public class Key {
 	public static final String TEST_ON_BORROW = "testOnBorrow";
 	
     public static final String CONN_TIMEOUT = "connectionTimeout";
+    public static final String DbNumber = "dbNumber";//15
     public static final String ListKey = "listKey"; //read list by keys[]
     public static final String COLUMN = "column";
     

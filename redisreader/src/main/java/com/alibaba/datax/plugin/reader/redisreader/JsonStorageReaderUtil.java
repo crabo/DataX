@@ -5,6 +5,9 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.alibaba.datax.common.element.BoolColumn;
 import com.alibaba.datax.common.element.Column;
 import com.alibaba.datax.common.element.DateColumn;
@@ -17,12 +20,13 @@ import com.alibaba.datax.common.exception.DataXException;
 import com.alibaba.datax.common.plugin.RecordSender;
 import com.alibaba.datax.common.plugin.TaskPluginCollector;
 import com.alibaba.datax.common.util.Configuration;
+import com.alibaba.datax.plugin.reader.redisreader.RedisReader.Job;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 
 public class JsonStorageReaderUtil {
-
+	private static final Logger LOG = LoggerFactory.getLogger(JsonStorageReaderUtil.class);
 	public static void transportOneRecord(RecordSender recordSender,
 			TaskPluginCollector taskPluginCollector,
 			List<ColumnEntry> column,
@@ -35,7 +39,17 @@ public class JsonStorageReaderUtil {
 			if(json.startsWith("[")){
 				JSONArray multi = JSON.parseArray(json);
 				for(Object data : multi){
-					JSONObject row = (JSONObject)data;
+					JSONObject row;
+					if(data instanceof String){
+						String jsonInner = (String)data;
+						if(jsonInner.startsWith("[")){
+							LOG.error("drop error data of array[]!!!\n{}",jsonInner);
+							continue;
+						}else
+							row = JSON.parseObject(jsonInner);
+					}
+					else
+						row = (JSONObject)data;
 					if(!row.isEmpty())
 						transportOneRecord(recordSender, column, row, taskPluginCollector);
 				}
@@ -127,6 +141,8 @@ public class JsonStorageReaderUtil {
 		} catch (IndexOutOfBoundsException ioe) {
 			taskPluginCollector.collectDirtyRecord(record, ioe.getMessage());
 		} catch (Exception e) {
+			LOG.error("drop error data on transport!!!\n{}",row.toJSONString());
+			
 			if (e instanceof DataXException) {
 				throw (DataXException) e;
 			}
